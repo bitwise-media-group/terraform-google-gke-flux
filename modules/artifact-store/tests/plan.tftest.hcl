@@ -44,13 +44,18 @@ run "wif_trust" {
   command = plan
 
   assert {
-    condition     = google_service_account_iam_member.chart_publisher_wif.member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group/flux-containers:ref:refs/heads/main"
-    error_message = "chart publishing must be pinned to the flux-containers default branch"
+    condition     = google_service_account_iam_member.chart_publisher_wif.member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group@282673588/flux-containers@1303643498:ref:refs/heads/main"
+    error_message = "chart publishing must be pinned to the flux-containers default branch via the immutable-id subject"
   }
 
   assert {
-    condition     = sort(keys(google_service_account_iam_member.manifest_publisher_wif)) == tolist(["env", "tag"])
-    error_message = "manifest publishing must admit exactly the release-tag and promotion-environment principals"
+    condition     = sort(keys(google_service_account_iam_member.manifest_publisher_wif)) == tolist(["env", "main", "tag"])
+    error_message = "manifest publishing must admit exactly the release-tag, edge-channel and promotion-environment principals"
+  }
+
+  assert {
+    condition     = google_service_account_iam_member.manifest_publisher_wif["main"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group/flux-manifests:ref:refs/heads/main"
+    error_message = "merges to the flux-manifests default branch must be able to publish the edge channel"
   }
 
   assert {
@@ -66,6 +71,35 @@ run "wif_trust" {
   assert {
     condition     = output.workload_identity_provider == "projects/123456789012/locations/global/workloadIdentityPools/github-actions/providers/github-oidc"
     error_message = "the provider output must pass through the central provider name"
+  }
+}
+
+# Until flux-manifests exists on GitHub, manifests_id stays null and its
+# subject members fall back to the name-only form (asserted in wif_trust
+# above). Once the id is set, subject-matched members must pin it — GitHub's
+# post-2026-07-15 immutable subjects never present the name-only form.
+run "manifests_id_pinned" {
+  command = plan
+
+  variables {
+    github = {
+      manifests_id = 1310000042
+    }
+  }
+
+  assert {
+    condition     = google_service_account_iam_member.manifest_publisher_wif["main"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group@282673588/flux-manifests@1310000042:ref:refs/heads/main"
+    error_message = "with manifests_id set, subject members must pin the immutable org/repo ids"
+  }
+
+  assert {
+    condition     = google_service_account_iam_member.manifest_publisher_wif["env"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group@282673588/flux-manifests@1310000042:environment:production"
+    error_message = "the promotion-environment member must pin the immutable org/repo ids too"
+  }
+
+  assert {
+    condition     = google_service_account_iam_member.manifest_publisher_wif["tag"].member == "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/attribute.publish/bitwise-media-group/flux-manifests:tag"
+    error_message = "attribute.publish matches assertion.repository, which stays name-only regardless of manifests_id"
   }
 }
 
