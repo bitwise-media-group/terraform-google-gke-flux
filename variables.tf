@@ -175,6 +175,12 @@ variable "observability" {
   default = {}
 }
 
+variable "managed_opentelemetry" {
+  description = "Enable Managed OpenTelemetry for GKE (Preview): Google's in-cluster OTLP pipeline (HTTP endpoint opentelemetry-collector.gke-managed-otel:4318) shipping traces/logs/metrics to the CLUSTER project's Cloud Trace/Logging/Monitoring -- it cannot target observability.project. Per-cluster pilot toggle for retiring the self-hosted otel-collector component; requires GKE >= 1.34.1-gke.2178000."
+  type        = bool
+  default     = false
+}
+
 variable "flux" {
   description = "Flux bootstrap knobs. Chart repositories, the distribution registry and the sync url default onto platform_registry; sync.ref picks the release channel (stable, staging, or edge for dev clusters tracking trunk -- pair edge with the manifests_edge signing subject)."
   type = object({

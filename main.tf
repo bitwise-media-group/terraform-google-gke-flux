@@ -59,7 +59,9 @@ resource "google_project_iam_member" "nodes" {
 }
 
 resource "google_container_cluster" "main" {
-  provider = google
+  # beta-only for managed_opentelemetry_config (see terraform.tf); switching
+  # providers is config-only -- no replacement, no state surgery
+  provider = google-beta
 
   project  = var.project
   name     = var.name
@@ -196,6 +198,14 @@ resource "google_container_cluster" "main" {
 
   monitoring_config {
     enable_components = ["SYSTEM_COMPONENTS"]
+  }
+
+  # Managed OpenTelemetry (Preview) -- the Google-managed replacement for the
+  # self-hosted otel-collector component. Always declared, with an explicit
+  # NONE when disabled, so flipping the toggle off after a pilot actually
+  # turns the pipeline down instead of orphaning it outside terraform's view.
+  managed_opentelemetry_config {
+    scope = var.managed_opentelemetry ? "COLLECTION_AND_INSTRUMENTATION_COMPONENTS" : "NONE"
   }
 
   resource_labels = var.labels

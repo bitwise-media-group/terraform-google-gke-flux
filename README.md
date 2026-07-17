@@ -82,6 +82,7 @@ tool; `mise trust --all` once per clone.
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
 | google | >= 7.0, < 8.0 |
+| google-beta | >= 7.17, < 8.0 |
 | helm | ~> 3.0 |
 
 ## Providers
@@ -89,6 +90,7 @@ tool; `mise trust --all` once per clone.
 | Name | Version |
 | ---- | ------- |
 | google | >= 7.0, < 8.0 |
+| google-beta | >= 7.17, < 8.0 |
 
 ## Modules
 
@@ -100,8 +102,8 @@ tool; `mise trust --all` once per clone.
 
 | Name | Type |
 | ---- | ---- |
+| [google-beta_google_container_cluster.main](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_container_cluster) | resource |
 | [google_compute_global_address.gateway](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_global_address) | resource |
-| [google_container_cluster.main](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_cluster) | resource |
 | [google_container_node_pool.system](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_node_pool) | resource |
 | [google_project_iam_member.nodes](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_project_iam_member.registry_readers](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
@@ -127,6 +129,7 @@ tool; `mise trust --all` once per clone.
 | gateway | The platform Gateway's global static IP, stable across cluster recreation. Reserve one here (default; address\_name defaults to <name>-gateway) or reference an existing address by name with reserve\_static\_ip = false (e.g. cloud-accounts' `ingress` address in x-patchy-app). | <pre>object({<br/>    reserve_static_ip = optional(bool, true)<br/>    address_name      = optional(string)<br/>  })</pre> | `{}` | no |
 | kubernetes\_version | Optional minimum master version pin; null lets the release channel govern. | `string` | `null` | no |
 | labels | Resource labels applied to the cluster. | `map(string)` | `{}` | no |
+| managed\_opentelemetry | Enable Managed OpenTelemetry for GKE (Preview): Google's in-cluster OTLP pipeline (HTTP endpoint opentelemetry-collector.gke-managed-otel:4318) shipping traces/logs/metrics to the CLUSTER project's Cloud Trace/Logging/Monitoring -- it cannot target observability.project. Per-cluster pilot toggle for retiring the self-hosted otel-collector component; requires GKE >= 1.34.1-gke.2178000. | `bool` | `false` | no |
 | master\_authorized\_networks | CIDRs allowed to reach the public control-plane endpoint. Empty leaves the endpoint open (PoC posture) — constrain it as soon as a stable egress CIDR exists. | <pre>list(object({<br/>    cidr_block   = string<br/>    display_name = optional(string)<br/>  }))</pre> | `[]` | no |
 | node\_auto\_provisioning | Node auto-provisioning (NAP) limits for workload capacity — the cluster-wide ceilings across all auto-provisioned pools. | <pre>object({<br/>    min_cpu        = optional(number, 0)<br/>    max_cpu        = optional(number, 64)<br/>    min_memory_gib = optional(number, 0)<br/>    max_memory_gib = optional(number, 256)<br/>    disk_size_gib  = optional(number, 100)<br/>  })</pre> | `{}` | no |
 | observability | Optional central observability project the otel-collector writes telemetry to; null targets the cluster's own project. | <pre>object({<br/>    project = optional(string)<br/>  })</pre> | `{}` | no |

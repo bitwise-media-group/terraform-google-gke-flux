@@ -27,6 +27,8 @@ mock_provider "google" {
   }
 }
 
+mock_provider "google-beta" {}
+
 mock_provider "helm" {}
 
 variables {
@@ -95,6 +97,24 @@ run "cluster_shape" {
   assert {
     condition     = google_container_cluster.main.deletion_protection == false
     error_message = "the cluster must be disposable by default (destroy/recreate is a design requirement)"
+  }
+
+  assert {
+    condition     = google_container_cluster.main.managed_opentelemetry_config[0].scope == "NONE"
+    error_message = "managed OpenTelemetry must be explicitly NONE by default (the self-hosted otel-collector is the platform OTLP endpoint)"
+  }
+}
+
+run "managed_opentelemetry_pilot" {
+  command = plan
+
+  variables {
+    managed_opentelemetry = true
+  }
+
+  assert {
+    condition     = google_container_cluster.main.managed_opentelemetry_config[0].scope == "COLLECTION_AND_INSTRUMENTATION_COMPONENTS"
+    error_message = "the pilot toggle must enable collection and instrumentation components"
   }
 }
 

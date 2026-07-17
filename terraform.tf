@@ -9,6 +9,13 @@ terraform {
       source  = "hashicorp/google"
       version = ">= 7.0, < 8.0"
     }
+    # The cluster resource alone rides the beta provider (a lockstep superset
+    # of google): managed_opentelemetry_config has not been promoted to GA.
+    # Fold it back into google when it lands there.
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = ">= 7.17, < 8.0"
+    }
     helm = {
       source  = "hashicorp/helm"
       version = "~> 3.0"
