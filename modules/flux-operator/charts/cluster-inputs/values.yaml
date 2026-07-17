@@ -1,0 +1,10 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The cluster-vars ConfigMap contents; supplied by the flux-operator module
+# from the cluster's reserved vars merged over caller extras.
+clusterVars: {}
+
+# Namespaces pre-created ahead of the flux stack (adopted by kustomizations
+# via server-side apply).
+namespaces: []

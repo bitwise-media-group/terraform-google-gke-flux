@@ -1,0 +1,106 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Plan-time tests for the bootstrap chain: the FluxInstance values (gcp
+# cluster type, gcp sync provider, the keyless verify patch) and the
+# cluster-inputs contract are all plan-known helm values, so the whole
+# terraform -> flux contract is assertable without a cluster.
+
+mock_provider "google" {}
+mock_provider "helm" {}
+
+variables {
+  project        = "x-patchy-app-ab12"
+  project_number = "123456789012"
+
+  operator_chart = {
+    repository = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/charts"
+  }
+  instance_chart = {
+    repository = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/charts"
+  }
+  distribution = {
+    version  = "2.x"
+    registry = "us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/images/ghcr.io/fluxcd"
+  }
+  sync = {
+    url  = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/flux-manifests"
+    ref  = "stable"
+    path = "stack"
+  }
+  signed_identity = {
+    issuer            = "^https://token\\.actions\\.githubusercontent\\.com$"
+    manifests_subject = "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+  }
+  cluster_vars = {
+    CLUSTER_NAME      = "patchy-x"
+    PLATFORM_REGISTRY = "us-central1-docker.pkg.dev/x-patchy-app-ab12/platform"
+  }
+  namespaces = ["patchy", "patchy-agents"]
+}
+
+run "flux_instance_contract" {
+  command = plan
+
+  assert {
+    condition     = yamldecode(helm_release.flux_instance.values[0]).instance.cluster.type == "gcp"
+    error_message = "the FluxInstance must declare a gcp cluster"
+  }
+
+  assert {
+    condition     = yamldecode(helm_release.flux_instance.values[0]).instance.sync.provider == "gcp"
+    error_message = "the sync OCIRepository must authenticate to Artifact Registry via the gcp provider"
+  }
+
+  assert {
+    condition     = yamldecode(helm_release.flux_instance.values[0]).instance.sync.ref == "stable"
+    error_message = "the sync ref must pass through"
+  }
+
+  # The verify patch is the load-bearing keyless change: find the patch
+  # targeting the flux-system OCIRepository and check its matchOIDCIdentity.
+  assert {
+    condition = anytrue([
+      for p in yamldecode(helm_release.flux_instance.values[0]).instance.kustomize.patches :
+      try(p.target.kind, "") == "OCIRepository"
+      && try(yamldecode(p.patch)[0].value.matchOIDCIdentity[0].subject, "") == var.signed_identity.manifests_subject
+    ])
+    error_message = "the generated flux-system OCIRepository must verify the manifests artifact against the publish workflow identity"
+  }
+
+  assert {
+    condition = anytrue([
+      for p in yamldecode(helm_release.flux_instance.values[0]).instance.kustomize.patches :
+      try(p.target.labelSelector, "") == "app.kubernetes.io/part-of=flux"
+    ])
+    error_message = "the flux controllers must be pinned to the system node pool via the controller patch"
+  }
+}
+
+run "cluster_inputs_contract" {
+  command = plan
+
+  assert {
+    condition     = yamldecode(helm_release.cluster_inputs.values[0]).clusterVars.CLUSTER_NAME == "patchy-x"
+    error_message = "cluster vars must flow into the cluster-inputs chart"
+  }
+
+  assert {
+    condition     = contains(yamldecode(helm_release.cluster_inputs.values[0]).namespaces, "patchy-agents")
+    error_message = "pre-created namespaces must flow into the cluster-inputs chart"
+  }
+}
+
+run "registry_read_grants" {
+  command = plan
+
+  assert {
+    condition     = google_project_iam_member.registry_read["source-controller"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/flux-system/sa/source-controller"
+    error_message = "source-controller must read the registry as a direct federated principal"
+  }
+
+  assert {
+    condition     = contains(keys(google_project_iam_member.registry_read), "flux-operator")
+    error_message = "flux-operator must read the registry (GARArtifactTag tag listings)"
+  }
+}

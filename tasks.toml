@@ -1,0 +1,98 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# Repo-local tasks. The toolchain's terraform archetype is single-module (it
+# targets {{cwd}} for deployment roots like cloud-accounts environments); this
+# repo is a published module with sub-modules and examples, so the check-mode
+# tasks fan out over every configuration and the aggregates are redefined here
+# (an included file wins over the archetype on name collisions).
+
+# Machine-readable listings: the single source of truth for the fan-out loops
+# in validate and test below. Hidden helpers.
+
+# Every terraform configuration in the repo.
+[dirs]
+hide = true
+quiet = true
+run = """
+for dir in . modules/* examples/*; do
+  if [ -d "$dir" ]; then echo "$dir"; fi
+done
+"""
+
+# Configurations with a terraform test suite (plan-time, mocked providers).
+[test-dirs]
+hide = true
+quiet = true
+run = """
+echo .
+for dir in modules/*/tests; do
+  if [ -d "$dir" ]; then echo "${dir%/tests}"; fi
+done
+"""
+
+# Every directory is attempted even when one fails; results are summarized at
+# the end. No set -e: per-directory failures are collected, and the final test
+# provides the exit status.
+[validate]
+description = "terraform validate for every configuration"
+run = """
+failed=""
+for dir in $(mise run dirs); do
+  echo "==> $dir"
+  { terraform -chdir="$dir" init -backend=false -input=false > /dev/null \
+      && terraform -chdir="$dir" validate; } || failed="$failed $dir"
+done
+echo "==> summary"
+for dir in $(mise run dirs); do
+  case " $failed " in
+    *" $dir "*) echo "  FAIL  $dir" ;;
+    *) echo "  ok    $dir" ;;
+  esac
+done
+[ -z "$failed" ]
+"""
+
+[test]
+description = "terraform test for every configuration with a test suite"
+run = """
+failed=""
+for dir in $(mise run test-dirs); do
+  echo "==> $dir"
+  { terraform -chdir="$dir" init -backend=false -input=false > /dev/null \
+      && terraform -chdir="$dir" test; } || failed="$failed $dir"
+done
+echo "==> summary"
+for dir in $(mise run test-dirs); do
+  case " $failed " in
+    *" $dir "*) echo "  FAIL  $dir" ;;
+    *) echo "  ok    $dir" ;;
+  esac
+done
+[ -z "$failed" ]
+"""
+
+# tflint --recursive covers the root, modules/* and examples/* in one pass
+# (unlike the archetype's {{cwd}}-scoped tf-lint); terraform-docs --output-check
+# fails when a README's generated block is stale.
+[lint]
+description = "validate fan-out, tflint, terraform-docs check, license + prose lint"
+run = [{ task = "validate" }, """
+set -eu
+tflint --init > /dev/null
+tflint --recursive --config "{{config_root}}/.tflint.hcl"
+terraform-docs --output-check .
+""", { task = "license-check" }, { task = "lint-shell" }, { task = "lint-prose" }]
+
+# Driven by .terraform-docs.yml (root README + each modules/* README).
+[docs]
+description = "regenerate the terraform-docs blocks in the root and modules/* READMEs"
+run = "terraform-docs ."
+
+[ci]
+description = "the checks the reusable CI workflow runs"
+run = [{ task = "lint" }, { task = "test" }]
+
+[pr]
+description = "full local gate before a pull request"
+run = [{ task = "fmt" }, { task = "lint" }, { task = "docs" }, { task = "test" }, { task = "commit" }]

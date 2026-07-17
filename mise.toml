@@ -1,0 +1,21 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# terraform-google-gke-flux consumes the shared toolchain
+# (bitwise-media-group/toolchain) as the .mise/ submodule: pinned tools
+# (terraform, tflint, terraform-docs, addlicense, prettier, ...) and the
+# terraform task archetype come from there, and the Makefile is a thin
+# forwarder (.mise/mise.mk). Repo-local tasks live in tasks.toml (see
+# [task_config] below).
+
+[vars]
+# This is a published module repo, not a deployment root: there is no backend,
+# no state, and no secrets to inject, so terraform is invoked directly instead
+# of through the dotty env wrapper.
+tf_run = ""
+
+[task_config]
+# Repo-local tasks live in tasks.toml, included AFTER the archetype so its
+# same-named tasks (lint, docs, ci, pr) replace the archetype's single-module
+# definitions with fan-out over the root, modules/* and examples/*.
+includes = [".mise/tasks/terraform.toml", "tasks.toml"]

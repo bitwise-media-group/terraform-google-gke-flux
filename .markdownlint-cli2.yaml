@@ -1,0 +1,36 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Repo-local copy of the toolchain house default (.mise/.markdownlint-cli2.yaml)
+# with one delta: no-inline-html is off. terraform-docs injects generated
+# tables into every README (<pre>/<br/> for object types, and variable
+# descriptions legitimately contain <placeholder> markers), so MD033 cannot
+# hold in a terraform-docs repo.
+# yaml-language-server: $schema=https://raw.githubusercontent.com/DavidAnson/markdownlint-cli2/refs/heads/main/schema/markdownlint-cli2-config-schema.json
+config:
+  default: true
+  # keep prose readable in terminals and diffs; tables are exempt.
+  line-length:
+    line_length: 120
+    tables: false
+  no-duplicate-heading:
+    siblings_only: true
+  code-block-style:
+    style: fenced
+  # terraform-docs generated tables are inline-HTML by construction
+  no-inline-html: false
+
+globs:
+  - "**/*.md"
+
+ignores:
+  # node cruft
+  - "node_modules/**"
+  # the toolchain library submodule (its prose is linted in its own repo)
+  - ".mise/**"
+  # uv-managed virtualenvs (site-packages ship their own markdown)
+  - ".venv/**"
+  # agent cruft
+  - ".claude/**"
+  # machine-written by release-please, not house prose
+  - "CHANGELOG.md"

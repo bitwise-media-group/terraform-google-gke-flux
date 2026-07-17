@@ -1,0 +1,28 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Continuous integration — thin caller for the org's reusable ci workflow (v5+:
+# mise-task aware). It discovers the canonical tasks this repo defines and runs
+# `make lint` / `test` as one parallel job each. `make lint` carries the whole
+# check-mode surface — terraform validate fan-out (root, modules/*, examples/*),
+# tflint --recursive, terraform-docs --output-check, addlicense, markdownlint,
+# prettier --check — and `make test` runs `terraform test` (plan-time, mocked
+# providers) for every configuration with a test suite. All pinned tools come
+# from the toolchain submodule at .mise/.
+#
+# The reusable workflow is pinned to a full commit SHA (tag in the comment) so a
+# moved tag can never change what runs; Dependabot keeps the pin fresh.
+name: Continuous Integration
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+# the reusable workflow's jobs only need contents:read; grant just that ceiling
+permissions:
+    contents: read
+
+jobs:
+    ci:
+        uses: bitwise-media-group/github-workflows/.github/workflows/ci.yaml@3636c830f0b00c591f8b27401c45786d08466f18 # v6.0.0

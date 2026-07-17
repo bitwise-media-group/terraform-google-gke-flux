@@ -1,0 +1,14 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+{{- /* Created here so workload namespaces (and any out-of-band secrets they
+       receive) can exist before Flux deploys into them; flux-manifests
+       kustomizations adopt them via server-side apply. */}}
+{{- range .Values.namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ . }}
+  labels:
+    app.kubernetes.io/managed-by: cluster-inputs
+{{- end }}

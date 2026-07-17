@@ -1,0 +1,23 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# terraform-docs configuration: `make docs` regenerates the block between the
+# BEGIN_TF_DOCS / END_TF_DOCS markers in the root README.md and in each
+# modules/* README.md (created on first run).
+formatter: markdown table
+
+recursive:
+  enabled: true
+  path: modules
+
+output:
+  file: README.md
+  mode: inject
+
+sort:
+  enabled: true
+  by: required
+
+settings:
+  anchor: false
+  lockfile: false

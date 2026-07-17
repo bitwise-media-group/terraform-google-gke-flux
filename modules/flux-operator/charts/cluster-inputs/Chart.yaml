@@ -1,0 +1,10 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: v2
+name: cluster-inputs
+description: >-
+  Per-cluster contract between terraform-google-gke-flux and the flux-manifests
+  stack: the cluster-vars ConfigMap every Kustomization substitutes from, and
+  namespaces pre-created ahead of the stack.
+type: application
+version: 0.1.0

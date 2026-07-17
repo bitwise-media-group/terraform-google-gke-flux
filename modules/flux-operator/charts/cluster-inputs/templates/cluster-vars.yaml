@@ -1,0 +1,13 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-vars
+  namespace: {{ .Release.Namespace }}
+  labels:
+    patchy.internal/input: cluster-vars
+data:
+  {{- range $key, $value := .Values.clusterVars }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
