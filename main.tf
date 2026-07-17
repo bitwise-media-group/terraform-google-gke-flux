@@ -208,6 +208,20 @@ resource "google_container_cluster" "main" {
     scope = var.managed_opentelemetry ? "COLLECTION_AND_INSTRUMENTATION_COMPONENTS" : "NONE"
   }
 
+  # Secret Manager -> Kubernetes secret sync (patchy's credentials). Both
+  # blocks always declared with an explicit disable, same reasoning as
+  # managed_opentelemetry_config: flipping the toggle off actually turns the
+  # feature down instead of orphaning it outside terraform's view.
+  # secret_sync_config (Integrated Secret Synchronization) rides on the
+  # secret_manager_config CSI add-on, so one toggle governs both.
+  secret_manager_config {
+    enabled = var.secret_sync
+  }
+
+  secret_sync_config {
+    enabled = var.secret_sync
+  }
+
   resource_labels = var.labels
 }
 

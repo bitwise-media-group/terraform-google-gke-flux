@@ -103,6 +103,11 @@ run "cluster_shape" {
     condition     = google_container_cluster.main.managed_opentelemetry_config[0].scope == "NONE"
     error_message = "managed OpenTelemetry must be explicitly NONE by default (the self-hosted otel-collector is the platform OTLP endpoint)"
   }
+
+  assert {
+    condition     = google_container_cluster.main.secret_manager_config[0].enabled == false && google_container_cluster.main.secret_sync_config[0].enabled == false
+    error_message = "secret sync must be explicitly disabled by default (always-declared so flipping the toggle off turns the feature down)"
+  }
 }
 
 run "managed_opentelemetry_pilot" {
@@ -115,6 +120,24 @@ run "managed_opentelemetry_pilot" {
   assert {
     condition     = google_container_cluster.main.managed_opentelemetry_config[0].scope == "COLLECTION_AND_INSTRUMENTATION_COMPONENTS"
     error_message = "the pilot toggle must enable collection and instrumentation components"
+  }
+}
+
+run "secret_sync_enabled" {
+  command = plan
+
+  variables {
+    secret_sync = true
+  }
+
+  assert {
+    condition     = google_container_cluster.main.secret_manager_config[0].enabled == true
+    error_message = "the toggle must enable the Secret Manager CSI add-on (Integrated Secret Sync rides on it)"
+  }
+
+  assert {
+    condition     = google_container_cluster.main.secret_sync_config[0].enabled == true
+    error_message = "the toggle must enable Integrated Secret Synchronization (the SecretSync CRD flux-manifests relies on)"
   }
 }
 

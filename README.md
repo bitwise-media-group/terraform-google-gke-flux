@@ -82,7 +82,7 @@ tool; `mise trust --all` once per clone.
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
 | google | >= 7.0, < 8.0 |
-| google-beta | >= 7.17, < 8.0 |
+| google-beta | >= 7.33, < 8.0 |
 | helm | ~> 3.0 |
 
 ## Providers
@@ -90,7 +90,7 @@ tool; `mise trust --all` once per clone.
 | Name | Version |
 | ---- | ------- |
 | google | >= 7.0, < 8.0 |
-| google-beta | >= 7.17, < 8.0 |
+| google-beta | >= 7.33, < 8.0 |
 
 ## Modules
 
@@ -135,6 +135,7 @@ tool; `mise trust --all` once per clone.
 | observability | Optional central observability project the otel-collector writes telemetry to; null targets the cluster's own project. | <pre>object({<br/>    project = optional(string)<br/>  })</pre> | `{}` | no |
 | private\_endpoint | Serve the control-plane endpoint privately only. Off by default so terraform/helm bootstrap works without a VPN path into the shared VPC. | `bool` | `false` | no |
 | release\_channel | GKE release channel (RAPID, REGULAR, STABLE). | `string` | `"REGULAR"` | no |
+| secret\_sync | Enable the Secret Manager CSI add-on plus GKE Integrated Secret Synchronization -- the SecretProviderClass and SecretSync CRDs flux-manifests' patchy component uses to materialise Secret Manager secrets as Kubernetes Secrets. Requires GKE >= 1.33 and Workload Identity (always on here). The secretmanager.secretAccessor grants live beside the secrets in cloud-accounts, not in this module. | `bool` | `false` | no |
 | system\_node\_pool | The always-on system node pool platform controllers pin to (label role=system). Autoscaling counts are per zone in a regional pool. | <pre>object({<br/>    machine_type  = optional(string, "e2-standard-2")<br/>    min_size      = optional(number, 1)<br/>    max_size      = optional(number, 2)<br/>    initial_size  = optional(number, 1)<br/>    disk_size_gib = optional(number, 50)<br/>  })</pre> | `{}` | no |
 | workload\_identity | Namespace/service-account pairs the direct Workload Identity grants bind to — the terraform <-> flux-manifests contract. Override only to track a manifests change. | <pre>object({<br/>    external_dns = optional(object({<br/>      namespace       = optional(string, "external-dns")<br/>      service_account = optional(string, "external-dns")<br/>    }), {})<br/>    cert_manager = optional(object({<br/>      namespace       = optional(string, "cert-manager")<br/>      service_account = optional(string, "cert-manager")<br/>    }), {})<br/>    otel_collector = optional(object({<br/>      namespace       = optional(string, "otel-collector")<br/>      service_account = optional(string, "otel-collector")<br/>    }), {})<br/>    kyverno = optional(object({<br/>      namespace = optional(string, "kyverno")<br/>      # the controllers that fetch image signatures from the registry at<br/>      # admission/report time<br/>      service_accounts = optional(list(string), ["kyverno-admission-controller", "kyverno-reports-controller"])<br/>    }), {})<br/>  })</pre> | `{}` | no |
 | zones | Optional zone narrowing for node locations (cost control); null runs nodes in every zone of the region. | `set(string)` | `null` | no |

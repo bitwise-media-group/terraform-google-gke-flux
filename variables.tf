@@ -181,6 +181,12 @@ variable "managed_opentelemetry" {
   default     = false
 }
 
+variable "secret_sync" {
+  description = "Enable the Secret Manager CSI add-on plus GKE Integrated Secret Synchronization -- the SecretProviderClass and SecretSync CRDs flux-manifests' patchy component uses to materialise Secret Manager secrets as Kubernetes Secrets. Requires GKE >= 1.33 and Workload Identity (always on here). The secretmanager.secretAccessor grants live beside the secrets in cloud-accounts, not in this module."
+  type        = bool
+  default     = false
+}
+
 variable "flux" {
   description = "Flux bootstrap knobs. Chart repositories, the distribution registry and the sync url default onto platform_registry; sync.ref picks the release channel (stable, staging, or edge for dev clusters tracking trunk -- pair edge with the manifests_edge signing subject)."
   type = object({
