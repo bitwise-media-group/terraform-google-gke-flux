@@ -37,6 +37,8 @@ locals {
   manifest_publisher_members = {
     # Release tags publish versioned artifacts and move `staging`.
     tag = "${local.wif_publish_prefix}/${var.github.org}/${var.github.manifests}:tag"
+    # Merges to main publish the `edge` channel artifact (publish-edge.yaml).
+    main = "${local.wif_principal_prefix}/repo:${local.manifests_subject_repo}:ref:refs/heads/main"
     # The protected promotion environment moves `stable`.
     env = "${local.wif_principal_prefix}/repo:${local.manifests_subject_repo}:environment:${var.promotion_environment}"
   }

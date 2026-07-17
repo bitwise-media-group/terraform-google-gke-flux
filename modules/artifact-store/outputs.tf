@@ -52,5 +52,8 @@ output "signed_identity_subjects" {
   value = {
     containers = "^https://github\\.com/${var.github.org}/${var.github.containers}/\\.github/workflows/publish\\.yaml@refs/heads/main$"
     manifests  = "^https://github\\.com/${var.github.org}/${var.github.manifests}/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+    # edge channel: dev/sandbox clusters tracking trunk pass this as
+    # signed_identity.manifests_subject instead of the release identity above
+    manifests_edge = "^https://github\\.com/${var.github.org}/${var.github.manifests}/\\.github/workflows/publish-edge\\.yaml@refs/heads/main$"
   }
 }

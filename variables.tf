@@ -176,7 +176,7 @@ variable "observability" {
 }
 
 variable "flux" {
-  description = "Flux bootstrap knobs. Chart repositories, the distribution registry and the sync url default onto platform_registry; sync.ref picks the release channel (stable or staging)."
+  description = "Flux bootstrap knobs. Chart repositories, the distribution registry and the sync url default onto platform_registry; sync.ref picks the release channel (stable, staging, or edge for dev clusters tracking trunk -- pair edge with the manifests_edge signing subject)."
   type = object({
     operator_chart = optional(object({
       repository = optional(string)
@@ -204,8 +204,8 @@ variable "flux" {
   default = {}
 
   validation {
-    condition     = contains(["stable", "staging"], var.flux.sync.ref) || can(regex("^v", var.flux.sync.ref))
-    error_message = "flux.sync.ref must be a channel tag (stable, staging) or a pinned version tag (vX.Y.Z)."
+    condition     = contains(["stable", "staging", "edge"], var.flux.sync.ref) || can(regex("^v", var.flux.sync.ref))
+    error_message = "flux.sync.ref must be a channel tag (stable, staging, edge) or a pinned version tag (vX.Y.Z)."
   }
 }
 
