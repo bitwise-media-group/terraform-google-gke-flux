@@ -75,6 +75,13 @@ resource "google_project_iam_member" "workload" {
   project = each.value.project
   role    = each.value.role
   member  = each.value.member
+
+  # The implicit workload identity pool (<project>.svc.id.goog) only exists
+  # once the project's first Workload Identity cluster does, and IAM rejects
+  # members of nonexistent pools -- the member strings are composed from
+  # plan-known inputs, so the ordering must be explicit (same reasoning as
+  # registry_readers below).
+  depends_on = [google_container_cluster.main]
 }
 
 locals {

@@ -128,6 +128,22 @@ resource "google_container_cluster" "main" {
   remove_default_node_pool = true
   initial_node_count       = 1
 
+  # Governs only the TRANSIENT default pool GKE creates at cluster birth
+  # (removed above; real pools carry their own node_config). Without an
+  # explicit service account that pool requests the project's default
+  # compute SA -- disabled in these projects (project-factory
+  # default_service_account = "disable") -- and cluster creation fails with
+  # "Service account ... is disabled".
+  node_config {
+    service_account = google_service_account.nodes.email
+    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+
+    shielded_instance_config {
+      enable_secure_boot          = true
+      enable_integrity_monitoring = true
+    }
+  }
+
   # This environment is disposable by design (destroy/recreate must work
   # unattended); production consumers can flip it on.
   deletion_protection = var.deletion_protection
