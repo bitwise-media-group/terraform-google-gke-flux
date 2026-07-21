@@ -69,6 +69,11 @@ module "cluster" {
 
   master_authorized_networks = var.master_authorized_networks
 
+  # Google Groups for RBAC — the gke-security-groups@<domain> group and the
+  # member groups used as RBAC subjects are managed out-of-band in Workspace;
+  # this only points the cluster authenticator at it.
+  rbac = var.rbac
+
   system_node_pool = {
     machine_type = "e2-standard-2"
     min_size     = 1

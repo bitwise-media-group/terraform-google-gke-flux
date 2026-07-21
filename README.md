@@ -26,6 +26,10 @@ Three repos make the platform:
 - **Direct Workload Identity Federation grants** for in-cluster workloads (`principal://…/ns/<ns>/sa/<ksa>`): no GSAs,
   no `iam.gke.io/gcp-service-account` annotations. Real service accounts exist only for the GitHub Actions publishers
   and the nodes.
+- **Google Groups for RBAC (off by default)**: `rbac.enabled` + `rbac.domain` point the cluster authenticator at
+  `gke-security-groups@<domain>` — the exact name is a GKE requirement. The group itself and the member groups nested
+  under it (transitively usable as `Role`/`ClusterRoleBinding` subjects) are managed out-of-band in Workspace, never
+  here.
 - **DNS/TLS survives cluster recreation**: the delegated Cloud DNS zone lives in cloud-accounts and the Gateway's global
   static IP lives beside it (referenced here by name) — destroy/recreate serves the same domain again with no manual
   action.
@@ -134,6 +138,7 @@ tool; `mise trust --all` once per clone.
 | node\_auto\_provisioning | Node auto-provisioning (NAP) limits for workload capacity — the cluster-wide ceilings across all auto-provisioned pools. | <pre>object({<br/>    min_cpu        = optional(number, 0)<br/>    max_cpu        = optional(number, 64)<br/>    min_memory_gib = optional(number, 0)<br/>    max_memory_gib = optional(number, 256)<br/>    disk_size_gib  = optional(number, 100)<br/>  })</pre> | `{}` | no |
 | observability | Optional central observability project the otel-collector writes telemetry to; null targets the cluster's own project. | <pre>object({<br/>    project = optional(string)<br/>  })</pre> | `{}` | no |
 | private\_endpoint | Serve the control-plane endpoint privately only. Off by default so terraform/helm bootstrap works without a VPN path into the shared VPC. | `bool` | `false` | no |
+| rbac | Google Groups for RBAC, off by default. When enabled, the cluster authenticator trusts gke-security-groups@<domain> — the exact name is a GKE requirement. The group itself and the member groups usable as Role/ClusterRoleBinding subjects are managed out-of-band in Workspace, never here. | <pre>object({<br/>    enabled = optional(bool, false)<br/>    domain  = optional(string)<br/>  })</pre> | `{}` | no |
 | release\_channel | GKE release channel (RAPID, REGULAR, STABLE). | `string` | `"REGULAR"` | no |
 | secret\_sync | Enable the Secret Manager CSI add-on plus GKE Integrated Secret Synchronization -- the SecretProviderClass and SecretSync CRDs flux-manifests' patchy component uses to materialise Secret Manager secrets as Kubernetes Secrets. Requires GKE >= 1.33 and Workload Identity (always on here). The secretmanager.secretAccessor grants live beside the secrets in cloud-accounts, not in this module. | `bool` | `false` | no |
 | system\_node\_pool | The always-on system node pool platform controllers pin to (label role=system). Autoscaling counts are per zone in a regional pool. | <pre>object({<br/>    machine_type  = optional(string, "e2-standard-2")<br/>    min_size      = optional(number, 1)<br/>    max_size      = optional(number, 2)<br/>    initial_size  = optional(number, 1)<br/>    disk_size_gib = optional(number, 50)<br/>  })</pre> | `{}` | no |
@@ -153,6 +158,7 @@ tool; `mise trust --all` once per clone.
 | name | Cluster name. |
 | node\_service\_account | The dedicated node service account (system pool + auto-provisioned pools). |
 | platform\_registry | The platform registry prefix (pass-through of var.platform\_registry). |
+| rbac | Google Groups for RBAC (null unless rbac.enabled): the fleet group the cluster authenticator trusts. Groups must be nested under it (out-of-band, in Workspace) to be usable as Role/ClusterRoleBinding subjects. |
 | registry\_reader\_members | Every identity that reads the platform registry (node SA, flux controllers, kyverno controllers). Granted automatically either way: in-project when the registry is co-located, or on the registry's project (registry\_readers, via the org's reader-constrained delegation) when it is central. Exported for visibility and for feeding artifact-store reader\_members where the delegation is not in place. |
 | workload\_identity\_pool | The cluster's workload identity pool (<project>.svc.id.goog). |
 <!-- END_TF_DOCS -->

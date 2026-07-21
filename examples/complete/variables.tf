@@ -86,6 +86,15 @@ variable "master_authorized_networks" {
   default = []
 }
 
+variable "rbac" {
+  description = "Google Groups for RBAC (module rbac input): the toggle and the Workspace domain hosting gke-security-groups. Off by default."
+  type = object({
+    enabled = optional(bool, false)
+    domain  = optional(string)
+  })
+  default = {}
+}
+
 variable "observability_project" {
   description = "Optional central observability project for OTLP telemetry; null writes to the cluster project."
   type        = string

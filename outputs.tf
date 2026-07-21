@@ -59,6 +59,13 @@ output "gateway" {
   } : null
 }
 
+output "rbac" {
+  description = "Google Groups for RBAC (null unless rbac.enabled): the fleet group the cluster authenticator trusts. Groups must be nested under it (out-of-band, in Workspace) to be usable as Role/ClusterRoleBinding subjects."
+  value = var.rbac.enabled ? {
+    security_group = local.gke_security_group
+  } : null
+}
+
 output "flux" {
   description = "Flux bootstrap facts."
   value = {

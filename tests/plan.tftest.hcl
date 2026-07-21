@@ -141,6 +141,36 @@ run "secret_sync_enabled" {
   }
 }
 
+run "rbac_disabled_by_default" {
+  command = plan
+
+  assert {
+    condition     = google_container_cluster.main.authenticator_groups_config[0].security_group == ""
+    error_message = "Google Groups for RBAC must be explicitly disabled by default (always-declared so flipping the toggle off turns the authenticator down)"
+  }
+}
+
+run "rbac_enabled" {
+  command = plan
+
+  variables {
+    rbac = {
+      enabled = true
+      domain  = "bitwisemedia.co.uk"
+    }
+  }
+
+  assert {
+    condition     = google_container_cluster.main.authenticator_groups_config[0].security_group == "gke-security-groups@bitwisemedia.co.uk"
+    error_message = "the authenticator must trust the fleet group under the caller's domain (the exact gke-security-groups name is a GKE requirement)"
+  }
+
+  assert {
+    condition     = output.rbac.security_group == "gke-security-groups@bitwisemedia.co.uk"
+    error_message = "the trusted fleet group must be exported for the out-of-band membership management"
+  }
+}
+
 run "workload_identity_grants" {
   command = plan
 

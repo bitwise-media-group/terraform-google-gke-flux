@@ -75,6 +75,20 @@ variable "master_authorized_networks" {
   default = []
 }
 
+variable "rbac" {
+  description = "Google Groups for RBAC, off by default. When enabled, the cluster authenticator trusts gke-security-groups@<domain> — the exact name is a GKE requirement. The group itself and the member groups usable as Role/ClusterRoleBinding subjects are managed out-of-band in Workspace, never here."
+  type = object({
+    enabled = optional(bool, false)
+    domain  = optional(string)
+  })
+  default = {}
+
+  validation {
+    condition     = !var.rbac.enabled || var.rbac.domain != null
+    error_message = "rbac.domain is required when rbac.enabled is set (the Workspace domain hosting gke-security-groups)."
+  }
+}
+
 variable "system_node_pool" {
   description = "The always-on system node pool platform controllers pin to (label role=system). Autoscaling counts are per zone in a regional pool."
   type = object({

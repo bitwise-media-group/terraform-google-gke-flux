@@ -23,6 +23,12 @@ locals {
 
   system_node_selector = { role = "system" }
 
+  # Google Groups for RBAC. The fleet group's exact name is a GKE requirement;
+  # the group and its memberships are managed out-of-band in Workspace — this
+  # module only points the authenticator at it. "" is the explicit-disable
+  # value for authenticator_groups_config.
+  gke_security_group = var.rbac.enabled ? "gke-security-groups@${var.rbac.domain}" : ""
+
   # Registry-read grants can only be made here when the platform registry
   # lives in the cluster's own project (this module's apply identity has no
   # IAM rights elsewhere). For a central registry (e.g. o-foundation), feed
@@ -87,6 +93,14 @@ resource "google_container_cluster" "main" {
 
   workload_identity_config {
     workload_pool = local.workload_identity_pool
+  }
+
+  # Google Groups for RBAC: lets Role/ClusterRoleBindings bind the Workspace
+  # groups nested under gke-security-groups. Always declared with an explicit
+  # "" so flipping the toggle off actually turns the authenticator down, same
+  # reasoning as managed_opentelemetry_config.
+  authenticator_groups_config {
+    security_group = local.gke_security_group
   }
 
   private_cluster_config {
