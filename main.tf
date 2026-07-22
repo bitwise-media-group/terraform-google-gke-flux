@@ -232,12 +232,26 @@ resource "google_container_cluster" "main" {
   # feature down instead of orphaning it outside terraform's view.
   # secret_sync_config (Integrated Secret Synchronization) rides on the
   # secret_manager_config CSI add-on, so one toggle governs both.
+  # Rotation makes `versions/latest` a live pointer: without it a SecretSync
+  # resolves the version once at create/spec-change and new Secret Manager
+  # versions never reach the cluster. The interval is pinned (provider
+  # default is the same 120s) so the refresh cadence survives default drift.
   secret_manager_config {
     enabled = var.secret_sync
+
+    rotation_config {
+      enabled           = var.secret_sync
+      rotation_interval = "120s"
+    }
   }
 
   secret_sync_config {
     enabled = var.secret_sync
+
+    rotation_config {
+      enabled           = var.secret_sync
+      rotation_interval = "120s"
+    }
   }
 
   resource_labels = var.labels

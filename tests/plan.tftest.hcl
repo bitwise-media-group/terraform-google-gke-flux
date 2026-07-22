@@ -108,6 +108,16 @@ run "cluster_shape" {
     condition     = google_container_cluster.main.secret_manager_config[0].enabled == true && google_container_cluster.main.secret_sync_config[0].enabled == true
     error_message = "secret sync is on by default (the platform's Secret Manager bridge); both blocks stay declared so disabling actually turns the feature down"
   }
+
+  assert {
+    condition     = google_container_cluster.main.secret_manager_config[0].rotation_config[0].enabled == true && google_container_cluster.main.secret_sync_config[0].rotation_config[0].enabled == true
+    error_message = "rotation must be on wherever sync is on: without it versions/latest is resolved once and new Secret Manager versions never reach the cluster"
+  }
+
+  assert {
+    condition     = google_container_cluster.main.secret_manager_config[0].rotation_config[0].rotation_interval == "120s" && google_container_cluster.main.secret_sync_config[0].rotation_config[0].rotation_interval == "120s"
+    error_message = "the rotation interval is pinned at 120s so the refresh cadence survives provider default drift"
+  }
 }
 
 run "managed_opentelemetry_pilot" {
@@ -138,6 +148,11 @@ run "secret_sync_disabled" {
   assert {
     condition     = google_container_cluster.main.secret_sync_config[0].enabled == false
     error_message = "the toggle must turn Integrated Secret Synchronization down with the add-on it rides on"
+  }
+
+  assert {
+    condition     = google_container_cluster.main.secret_manager_config[0].rotation_config[0].enabled == false && google_container_cluster.main.secret_sync_config[0].rotation_config[0].enabled == false
+    error_message = "the toggle must turn rotation down with the sync it belongs to, not orphan it"
   }
 }
 
