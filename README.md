@@ -68,9 +68,9 @@ clusters sharing a project keep distinct secrets. `STACK_COMPONENTS` (`stack_com
 optional tier by short name (`flux-web`, `patchy`); the default elects the whole tier, and an explicit `[]` publishes
 the reserved name `none` (an empty string would re-trigger the manifests' elect-everything default). dex is not
 elected directly: it deploys exactly when `sso` is enabled (which also publishes the typed `DEX_DIRECTORY_SA`), and
-without it the elected components still run -- no SSO auth, no human-facing HTTPRoute, kubectl port-forward to reach. Callers may add extras (e.g.
-`*_SEMVER` range pins) via `flux.cluster_vars`; reserved keys always win. The published contract is exported as
-`flux.cluster_vars` in the module outputs for inspection.
+without it the elected components still run -- no SSO auth, no human-facing HTTPRoute, kubectl port-forward to reach.
+Callers may add extras (e.g. `*_SEMVER` range pins) via `flux.cluster_vars`; reserved keys always win. The published
+contract is exported as `flux.cluster_vars` in the module outputs for inspection.
 
 When `sso` is enabled the module also binds `roles/iam.workloadIdentityUser` on the directory-reader SA for the
 cluster's dex KSA (`sso.tf`) — the applying identity writes that one SA's policy through the get/setIamPolicy
