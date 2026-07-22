@@ -79,9 +79,17 @@ resource "helm_release" "flux_operator" {
   version    = var.operator_chart.version
 
   values = [
-    yamlencode({
-      nodeSelector = local.system_node_selector
-    })
+    yamlencode(merge(
+      {
+        nodeSelector = local.system_node_selector
+      },
+      # The web server reads its Web Config API document (SSO, base URL)
+      # from this Secret and hot-reloads on change, so the Secret may be
+      # delivered after bootstrap.
+      var.web_config_secret_name == null ? {} : {
+        web = { configSecretName = var.web_config_secret_name }
+      },
+    ))
   ]
 
   wait    = true

@@ -4,42 +4,58 @@
 variable "project" {
   description = "Project ID the cluster (and its workload identity pool) lives in."
   type        = string
+  nullable    = false
 }
 
 variable "project_number" {
   description = "Project number, for composing principal:// workload identity members at plan time."
   type        = string
+  nullable    = false
 }
 
 variable "namespace" {
   description = "Namespace for the flux-operator and Flux controllers."
   type        = string
+  nullable    = false
   default     = "flux-system"
 }
 
 variable "operator_chart" {
-  description = "flux-operator helm chart location: the platform registry's charts/flux-operator, published by flux-containers (the artifact store must be populated before the first cluster bootstraps). A null version installs the latest available at create and pins it in state — later applies don't auto-upgrade."
+  description = <<-EOT
+    flux-operator helm chart location: the platform registry's charts/flux-operator, published by flux-containers
+    (the artifact store must be populated before the first cluster bootstraps). A null version installs the latest
+    available at create and pins it in state — later applies don't auto-upgrade.
+  EOT
   type = object({
     repository = string # e.g. oci://<registry>/charts
     version    = optional(string)
   })
+  nullable = false
 }
 
 variable "instance_chart" {
-  description = "flux-instance helm chart location (renders the FluxInstance CR; avoids the kubernetes_manifest plan-time CRD problem). A null version installs the latest available at create and pins it in state."
+  description = <<-EOT
+    flux-instance helm chart location (renders the FluxInstance CR; avoids the kubernetes_manifest plan-time CRD
+    problem). A null version installs the latest available at create and pins it in state.
+  EOT
   type = object({
     repository = string
     version    = optional(string)
   })
+  nullable = false
 }
 
 variable "distribution" {
-  description = "Flux distribution: version constraint and the registry hosting the mirrored fluxcd controller images (and optionally the OCI artifact with the operator's manifests)."
+  description = <<-EOT
+    Flux distribution: version constraint and the registry hosting the mirrored fluxcd controller images (and
+    optionally the OCI artifact with the operator's manifests).
+  EOT
   type = object({
     version  = string
     registry = string
     artifact = optional(string)
   })
+  nullable = false
 }
 
 variable "sync" {
@@ -50,36 +66,67 @@ variable "sync" {
     path     = string # stack (the single entrypoint all clusters share)
     interval = optional(string, "5m")
   })
+  nullable = false
 }
 
 variable "signed_identity" {
-  description = "Cosign keyless identity (Go regexps over the Fulcio certificate) enforced on the generated flux-system OCIRepository, so an unsigned or tampered manifests artifact is never applied."
+  description = <<-EOT
+    Cosign keyless identity (Go regexps over the Fulcio certificate) enforced on the generated flux-system
+    OCIRepository, so an unsigned or tampered manifests artifact is never applied.
+  EOT
   type = object({
     issuer            = string
     manifests_subject = string
   })
+  nullable = false
 }
 
 variable "kustomize_patches" {
-  description = "Extra kustomize patches applied to the generated Flux instance objects, on top of the built-in controller nodeSelector and flux-system OCIRepository verify patches."
+  description = <<-EOT
+    Extra kustomize patches applied to the generated Flux instance objects, on top of the built-in controller
+    nodeSelector and flux-system OCIRepository verify patches.
+  EOT
   type        = list(any)
+  nullable    = false
   default     = []
 }
 
 variable "cluster_vars" {
-  description = "The cluster-vars ConfigMap contents — every value the flux-manifests stack substitutes via postBuild.substituteFrom."
+  description = <<-EOT
+    The cluster-vars ConfigMap contents — every value the flux-manifests stack substitutes via
+    postBuild.substituteFrom.
+  EOT
   type        = map(string)
+  nullable    = false
   default     = {}
 }
 
 variable "namespaces" {
-  description = "Namespaces pre-created by the cluster-inputs chart (e.g. workload namespaces that must exist before their secrets arrive out-of-band); flux kustomizations adopt them via server-side apply."
+  description = <<-EOT
+    Namespaces pre-created by the cluster-inputs chart (e.g. workload namespaces that must exist before their secrets
+    arrive out-of-band); flux kustomizations adopt them via server-side apply.
+  EOT
   type        = list(string)
+  nullable    = false
   default     = []
 }
 
 variable "grant_registry_read" {
-  description = "Grant the flux principals artifactregistry.reader on the cluster's project. On only when the platform registry is co-located; a central registry grants them via the artifact-store module's reader_members instead."
+  description = <<-EOT
+    Grant the flux principals artifactregistry.reader on the cluster's project. On only when the platform registry is
+    co-located; a central registry grants them via the artifact-store module's reader_members instead.
+  EOT
   type        = bool
+  nullable    = false
   default     = true
+}
+
+variable "web_config_secret_name" {
+  description = <<-EOT
+    Name of a Secret in the namespace whose config.yaml key carries the Web Config API document for the Flux Status web
+    UI (SSO, base URL). The operator hot-reloads it, so the Secret may arrive after bootstrap. Null runs the web server
+    unconfigured (anonymous, defaults).
+  EOT
+  type        = string
+  default     = null
 }
