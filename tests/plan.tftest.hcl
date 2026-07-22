@@ -176,6 +176,7 @@ run "rbac_enabled" {
         viewers    = "gcp-x-patchy-viewers@bitwisemedia.co.uk"
         developers = "gcp-x-patchy-developers@bitwisemedia.co.uk"
         devops     = "gcp-x-patchy-devops@bitwisemedia.co.uk"
+        admins     = "gcp-x-patchy-admins@bitwisemedia.co.uk"
       }
     }
   }
@@ -193,6 +194,11 @@ run "rbac_enabled" {
   assert {
     condition     = output.rbac.groups.developers == "gcp-x-patchy-developers@bitwisemedia.co.uk"
     error_message = "the per-role subject groups must be exported alongside the fleet group"
+  }
+
+  assert {
+    condition     = output.rbac.groups.admins == "gcp-x-patchy-admins@bitwisemedia.co.uk"
+    error_message = "the admins subject group must be exported alongside the fleet group"
   }
 }
 

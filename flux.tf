@@ -72,7 +72,8 @@ locals {
     DEX_DIRECTORY_SA = var.sso.enabled ? var.sso.directory_sa : ""
     },
     # The GKE RBAC subject groups, one var per role key in rbac.groups
-    # (RBAC_GROUP_VIEWERS, RBAC_GROUP_DEVELOPERS, RBAC_GROUP_DEVOPS) — the
+    # (RBAC_GROUP_VIEWERS, RBAC_GROUP_DEVELOPERS, RBAC_GROUP_DEVOPS,
+    # RBAC_GROUP_ADMINS) — the
     # manifests bind Role/ClusterRoleBindings on them; empty when the role
     # is unbound or RBAC is off.
     {

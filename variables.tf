@@ -116,6 +116,7 @@ variable "rbac" {
       viewers    = optional(string)
       developers = optional(string)
       devops     = optional(string)
+      admins     = optional(string)
     }), {})
   })
   nullable = false

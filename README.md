@@ -29,7 +29,7 @@ Three repos make the platform:
 - **Google Groups for RBAC (off by default)**: `rbac.enabled` + `rbac.domain` point the cluster authenticator at
   `gke-security-groups@<domain>` — the exact name is a GKE requirement. The group itself and the member groups nested
   under it (transitively usable as `Role`/`ClusterRoleBinding` subjects) are managed out-of-band in Workspace, never
-  here. `rbac.groups` names the per-role subject groups (viewers, developers, devops) and publishes each as an
+  here. `rbac.groups` names the per-role subject groups (viewers, developers, devops, admins) and publishes each as an
   `RBAC_GROUP_<ROLE>` cluster var, so flux-manifests can template the bindings without hard-coding group emails.
 - **DNS/TLS survives cluster recreation**: the delegated Cloud DNS zone lives in cloud-accounts and the Gateway's global
   static IP lives beside it (referenced here by name) — destroy/recreate serves the same domain again with no manual
@@ -62,8 +62,8 @@ flux-manifests README:
 `CLUSTER_NAME`, `GCP_PROJECT`, `GCP_PROJECT_NUMBER`, `GCP_REGION`, `PLATFORM_REGISTRY`, `CONTAINER_REGISTRY`,
 `SIGNED_IDENTITY_ISSUER`, `SIGNED_IDENTITY_CHARTS`, `SIGNED_IDENTITY_IMAGES`, `DNS_ZONE_NAME`, `DNS_DOMAIN`,
 `PATCHY_DOMAIN`, `ACME_EMAIL`, `GATEWAY_ADDRESS_NAME`, `GATEWAY_IP`, `OTEL_PROJECT`, `RBAC_GROUP_VIEWERS`,
-`RBAC_GROUP_DEVELOPERS`, `RBAC_GROUP_DEVOPS`, `SECRET_PREFIX`, `STACK_COMPONENTS` — optional surfaces use the
-empty-string convention. `SECRET_PREFIX` (`secret_prefix`) prefixes every Secret Manager container the stack syncs, so
+`RBAC_GROUP_DEVELOPERS`, `RBAC_GROUP_DEVOPS`, `RBAC_GROUP_ADMINS`, `SECRET_PREFIX`, `STACK_COMPONENTS` — optional
+surfaces use the empty-string convention. `SECRET_PREFIX` (`secret_prefix`) prefixes every Secret Manager container the stack syncs, so
 clusters sharing a project keep distinct secrets. `STACK_COMPONENTS` (`stack_components`) elects the manifests'
 optional tier by short name (`flux-web`, `patchy`); the default elects the whole tier, and an explicit `[]` publishes
 the reserved name `none` (an empty string would re-trigger the manifests' elect-everything default). dex is not
@@ -171,7 +171,7 @@ tool; `mise trust --all` once per clone.
 | node\_auto\_provisioning | Node auto-provisioning (NAP) limits for workload capacity — the cluster-wide ceilings across all auto-provisioned<br/>pools. | <pre>object({<br/>    min_cpu        = optional(number, 0)<br/>    max_cpu        = optional(number, 64)<br/>    min_memory_gib = optional(number, 0)<br/>    max_memory_gib = optional(number, 256)<br/>    disk_size_gib  = optional(number, 100)<br/>  })</pre> | `{}` | no |
 | observability | Optional central observability project the otel-collector writes telemetry to; null targets the cluster's own<br/>project. | <pre>object({<br/>    project = optional(string)<br/>  })</pre> | `{}` | no |
 | private\_endpoint | Serve the control-plane endpoint privately only. Off by default so terraform/helm bootstrap works without a VPN path<br/>into the shared VPC. | `bool` | `false` | no |
-| rbac | Google Groups for RBAC, off by default. When enabled, the cluster authenticator trusts gke-security-groups@<domain><br/>— the exact name is a GKE requirement. The group itself and the member groups usable as Role/ClusterRoleBinding<br/>subjects are managed out-of-band in Workspace, never here. groups names the per-role subject groups published to<br/>flux-manifests as RBAC\_GROUP\_<ROLE> cluster vars — each must be nested under the fleet group (out-of-band) for the<br/>authenticator to honour it. | <pre>object({<br/>    enabled = optional(bool, false)<br/>    domain  = optional(string)<br/>    groups = optional(object({<br/>      viewers    = optional(string)<br/>      developers = optional(string)<br/>      devops     = optional(string)<br/>    }), {})<br/>  })</pre> | `{}` | no |
+| rbac | Google Groups for RBAC, off by default. When enabled, the cluster authenticator trusts gke-security-groups@<domain><br/>— the exact name is a GKE requirement. The group itself and the member groups usable as Role/ClusterRoleBinding<br/>subjects are managed out-of-band in Workspace, never here. groups names the per-role subject groups published to<br/>flux-manifests as RBAC\_GROUP\_<ROLE> cluster vars — each must be nested under the fleet group (out-of-band) for the<br/>authenticator to honour it. | <pre>object({<br/>    enabled = optional(bool, false)<br/>    domain  = optional(string)<br/>    groups = optional(object({<br/>      viewers    = optional(string)<br/>      developers = optional(string)<br/>      devops     = optional(string)<br/>      admins     = optional(string)<br/>    }), {})<br/>  })</pre> | `{}` | no |
 | release\_channel | GKE release channel (RAPID, REGULAR, STABLE). | `string` | `"REGULAR"` | no |
 | secret\_prefix | Prefix for every Secret Manager container name the manifests stack syncs, published as the SECRET\_PREFIX cluster var<br/>(resourceNames become <prefix><container>). Lets multiple clusters share one project with distinct secrets; the<br/>containers and accessor grants in cloud-accounts must be created under the same prefix. Include the trailing<br/>separator (e.g. 'patchy-x-'); empty keeps the unprefixed names. | `string` | `null` | no |
 | secret\_sync | Enable the Secret Manager CSI add-on plus GKE Integrated Secret Synchronization -- the SecretProviderClass and<br/>SecretSync CRDs flux-manifests' patchy component uses to materialise Secret Manager secrets as Kubernetes Secrets.<br/>Requires GKE >= 1.33 and Workload Identity (always on here). The secretmanager.secretAccessor grants live beside the<br/>secrets in cloud-accounts, not in this module. | `bool` | `true` | no |
