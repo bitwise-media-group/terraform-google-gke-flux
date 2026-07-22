@@ -15,3 +15,7 @@ override.tf.json
 # tooling
 *.plan
 plan.tfplan
+
+# claude code
+/.claude/**
+!/.claude/settings.json
