@@ -105,8 +105,8 @@ run "cluster_shape" {
   }
 
   assert {
-    condition     = google_container_cluster.main.secret_manager_config[0].enabled == false && google_container_cluster.main.secret_sync_config[0].enabled == false
-    error_message = "secret sync must be explicitly disabled by default (always-declared so flipping the toggle off turns the feature down)"
+    condition     = google_container_cluster.main.secret_manager_config[0].enabled == true && google_container_cluster.main.secret_sync_config[0].enabled == true
+    error_message = "secret sync is on by default (the platform's Secret Manager bridge); both blocks stay declared so disabling actually turns the feature down"
   }
 }
 
@@ -123,21 +123,21 @@ run "managed_opentelemetry_pilot" {
   }
 }
 
-run "secret_sync_enabled" {
+run "secret_sync_disabled" {
   command = plan
 
   variables {
-    secret_sync = true
+    secret_sync = false
   }
 
   assert {
-    condition     = google_container_cluster.main.secret_manager_config[0].enabled == true
-    error_message = "the toggle must enable the Secret Manager CSI add-on (Integrated Secret Sync rides on it)"
+    condition     = google_container_cluster.main.secret_manager_config[0].enabled == false
+    error_message = "the toggle must turn the Secret Manager CSI add-on down, not orphan it"
   }
 
   assert {
-    condition     = google_container_cluster.main.secret_sync_config[0].enabled == true
-    error_message = "the toggle must enable Integrated Secret Synchronization (the SecretSync CRD flux-manifests relies on)"
+    condition     = google_container_cluster.main.secret_sync_config[0].enabled == false
+    error_message = "the toggle must turn Integrated Secret Synchronization down with the add-on it rides on"
   }
 }
 
@@ -157,6 +157,11 @@ run "rbac_enabled" {
     rbac = {
       enabled = true
       domain  = "bitwisemedia.co.uk"
+      groups = {
+        viewers    = "gcp-x-patchy-viewers@bitwisemedia.co.uk"
+        developers = "gcp-x-patchy-developers@bitwisemedia.co.uk"
+        devops     = "gcp-x-patchy-devops@bitwisemedia.co.uk"
+      }
     }
   }
 
@@ -168,6 +173,11 @@ run "rbac_enabled" {
   assert {
     condition     = output.rbac.security_group == "gke-security-groups@bitwisemedia.co.uk"
     error_message = "the trusted fleet group must be exported for the out-of-band membership management"
+  }
+
+  assert {
+    condition     = output.rbac.groups.developers == "gcp-x-patchy-developers@bitwisemedia.co.uk"
+    error_message = "the per-role subject groups must be exported alongside the fleet group"
   }
 }
 
@@ -300,5 +310,203 @@ run "gateway_existing_address" {
   assert {
     condition     = output.gateway.address_name == "ingress"
     error_message = "the existing address name (cloud-accounts' ingress) must flow through to the cluster vars"
+  }
+}
+
+run "stack_contract_defaults" {
+  command = plan
+
+  assert {
+    condition     = output.flux.cluster_vars.SECRET_PREFIX == ""
+    error_message = "the default must publish an empty SECRET_PREFIX (unprefixed container names)"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.STACK_COMPONENTS == "flux-web,patchy"
+    error_message = "the default election must publish the whole optional tier explicitly -- without dex, which rides the sso toggle"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.DEX_DIRECTORY_SA == ""
+    error_message = "without sso there is no directory SA to publish (empty-string convention)"
+  }
+}
+
+run "stack_contract_nothing_elected" {
+  command = plan
+
+  variables {
+    stack_components = []
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.STACK_COMPONENTS == "none"
+    error_message = "an explicitly-empty election must publish the reserved name 'none' -- an empty string would re-default to elect-everything in the manifests"
+  }
+
+  assert {
+    condition     = length(google_secret_manager_secret.dex_client) == 0
+    error_message = "no elected components, no SSO pairs"
+  }
+}
+
+run "stack_contract_elected" {
+  command = plan
+
+  variables {
+    secret_prefix    = "patchy-x-"
+    stack_components = ["patchy"]
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled      = true
+      directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+    }
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.SECRET_PREFIX == "patchy-x-"
+    error_message = "the secret prefix must flow through to the cluster vars"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.STACK_COMPONENTS == "dex,patchy"
+    error_message = "the election must publish as comma-separated short names, dex joining via the sso toggle"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.DEX_DIRECTORY_SA == "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+    error_message = "sso must publish the typed directory SA as the DEX_DIRECTORY_SA cluster var"
+  }
+
+  assert {
+    condition     = google_service_account_iam_member.dex_directory[0].service_account_id == "projects/x-patchy-app-ab12/serviceAccounts/dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+    error_message = "sso must bind workloadIdentityUser on the directory SA itself (project derived from the email), not expect cloud-accounts to"
+  }
+
+  assert {
+    condition     = google_service_account_iam_member.dex_directory[0].member == "serviceAccount:x-patchy-app-ab12.svc.id.goog[dex/dex]"
+    error_message = "the binding must pin this cluster's dex KSA in the classic annotation-based member form"
+  }
+}
+
+run "sso_requires_directory_sa" {
+  command = plan
+
+  variables {
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled = true
+    }
+  }
+
+  expect_failures = [var.sso]
+}
+
+run "sso_requires_domain" {
+  command = plan
+
+  variables {
+    sso = {
+      enabled      = true
+      directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+    }
+  }
+
+  expect_failures = [var.sso]
+}
+
+run "sso_rotation_rejects_unknown_clients" {
+  command = plan
+
+  variables {
+    sso = {
+      client_rotation = {
+        dex = 2
+      }
+    }
+  }
+
+  expect_failures = [var.sso]
+}
+
+run "sso_client_pairs" {
+  command = plan
+
+  variables {
+    secret_prefix = "patchy-x-"
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled      = true
+      directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+    }
+  }
+
+  assert {
+    condition     = google_secret_manager_secret.dex_client["flux-web"].secret_id == "patchy-x-dex-client-flux-web"
+    error_message = "the generated client containers must carry the cluster's secret prefix"
+  }
+
+  assert {
+    condition     = google_secret_manager_secret.flux_web_auth_config[0].secret_id == "patchy-x-flux-web-auth-config"
+    error_message = "the composed flux-web config container must carry the prefix too"
+  }
+
+  assert {
+    condition     = google_secret_manager_secret_iam_member.dex_client_reader["patchy-status/ns/patchy/sa/patchy-secrets"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/patchy/sa/patchy-secrets"
+    error_message = "the patchy status server must read its client secret as a direct federated principal"
+  }
+
+  assert {
+    condition     = strcontains(google_secret_manager_secret_version.patchy_status_auth_config[0].secret_data, "https://dex.patchy.bitwisemedia.co.uk")
+    error_message = "the status auth document must point at the platform dex on the served domain"
+  }
+}
+
+run "sso_follows_election" {
+  command = plan
+
+  variables {
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled      = true
+      directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+    }
+    stack_components = ["patchy"]
+  }
+
+  assert {
+    condition     = !contains(keys(google_secret_manager_secret.dex_client), "flux-web")
+    error_message = "an unelected relying party must get no client secret"
+  }
+
+  assert {
+    condition     = length(google_secret_manager_secret.flux_web_auth_config) == 0
+    error_message = "an unelected relying party must get no config document"
+  }
+
+  assert {
+    condition     = contains(keys(google_secret_manager_secret.dex_client), "patchy-status")
+    error_message = "elected relying parties keep their client pairs"
+  }
+}
+
+run "sso_disabled_no_pairs" {
+  command = plan
+
+  assert {
+    condition     = length(google_secret_manager_secret.dex_client) == 0
+    error_message = "sso off (the default) must generate no client pairs"
   }
 }

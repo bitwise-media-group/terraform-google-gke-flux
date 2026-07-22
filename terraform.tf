@@ -21,5 +21,10 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 3.0"
     }
+    # The ephemeral dex client secrets (sso.tf).
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.7, < 4.0"
+    }
   }
 }

@@ -89,6 +89,13 @@ module "cluster" {
     project = var.observability_project
   }
 
+  # Per-cluster reusability knobs: distinct Secret Manager containers when
+  # clusters share a project, the optional-tier component election, and the
+  # SSO toggle that deploys dex and wires the elected components to it.
+  secret_prefix    = var.secret_prefix
+  stack_components = var.stack_components
+  sso              = var.sso
+
   flux = {
     sync = {
       # this environment tracks the staging channel; production consumers
