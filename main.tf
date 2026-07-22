@@ -73,7 +73,11 @@ resource "google_container_cluster" "main" {
   name     = var.name
   location = var.region
 
-  node_locations = var.zones
+  # An empty set must land as unset (null): explicitly-empty node_locations
+  # fights the API-populated zone list on regional clusters, and the
+  # provider's shrink-to-empty update serializes to an empty ClusterUpdate
+  # the API rejects ("Must specify a field to update").
+  node_locations = length(var.zones) > 0 ? var.zones : null
 
   # Shared VPC: self-links into the host project; secondary ranges by NAME
   # (created by cloud-accounts alongside the subnet).
