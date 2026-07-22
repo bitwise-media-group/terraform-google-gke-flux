@@ -4,17 +4,20 @@
 variable "project" {
   description = "Project ID the artifact store lives in (e.g. the x-patchy-app project)."
   type        = string
+  nullable    = false
 }
 
 variable "location" {
   description = "Artifact Registry location. Keep it in the cluster's region so image pulls stay regional."
   type        = string
+  nullable    = false
   default     = "us-central1"
 }
 
 variable "name" {
   description = "Base name for the publisher service accounts (account_id prefix, so keep it short)."
   type        = string
+  nullable    = false
   default     = "platform"
 
   validation {
@@ -24,13 +27,21 @@ variable "name" {
 }
 
 variable "repository_id" {
-  description = "Artifact Registry repository id. Charts land under charts/<name>, images under images/<original-path>, and the manifests artifact at flux-manifests within it."
+  description = <<-EOT
+    Artifact Registry repository id. Charts land under charts/<name>, images under images/<original-path>, and the
+    manifests artifact at flux-manifests within it.
+  EOT
   type        = string
+  nullable    = false
   default     = "platform"
 }
 
 variable "github" {
-  description = "GitHub org and repository names the publisher trust is pinned to, plus the immutable numeric ids GitHub embeds in the OIDC subjects of post-2026-07-15 repos (org_id from GET /orgs/<org>, repo ids from GET /repos/<org>/<repo>). manifests_id may stay null until that repo exists on GitHub."
+  description = <<-EOT
+    GitHub org and repository names the publisher trust is pinned to, plus the immutable numeric ids GitHub embeds in
+    the OIDC subjects of post-2026-07-15 repos (org_id from GET /orgs/<org>, repo ids from GET /repos/<org>/<repo>).
+    manifests_id may stay null until that repo exists on GitHub.
+  EOT
   type = object({
     org           = optional(string, "bitwise-media-group")
     org_id        = optional(number, 282673588)
@@ -39,21 +50,27 @@ variable "github" {
     manifests     = optional(string, "flux-manifests")
     manifests_id  = optional(number)
   })
-  default = {}
+  nullable = false
+  default  = {}
 }
 
 variable "promotion_environment" {
   description = "GitHub environment (protected, reviewer-gated) whose jobs may move the stable channel tag."
   type        = string
+  nullable    = false
   default     = "production"
 }
 
 variable "wif" {
-  description = "The org's existing Workload Identity Federation pool/provider for GitHub OIDC, as full resource names. The trust anchor is owned centrally (cloud-accounts' o-foundation) -- this module only binds publishers to it."
+  description = <<-EOT
+    The org's existing Workload Identity Federation pool/provider for GitHub OIDC, as full resource names. The trust
+    anchor is owned centrally (cloud-accounts' o-foundation) -- this module only binds publishers to it.
+  EOT
   type = object({
     pool_name     = string
     provider_name = string
   })
+  nullable = false
 
   validation {
     condition = (
@@ -65,19 +82,27 @@ variable "wif" {
 }
 
 variable "reader_members" {
-  description = "IAM members granted artifactregistry.reader on the repository. Coarse grants are the intended shape (content security is cosign verification, not read denial): the org-wide service-account principal set plus one all-identities workload-identity-pool principalSet per cluster project. Per-identity least privilege remains possible via each cluster's registry_reader_members output."
+  description = <<-EOT
+    IAM members granted artifactregistry.reader on the repository. Coarse grants are the intended shape (content
+    security is cosign verification, not read denial): the org-wide service-account principal set plus one
+    all-identities workload-identity-pool principalSet per cluster project. Per-identity least privilege remains
+    possible via each cluster's registry_reader_members output.
+  EOT
   type        = list(string)
+  nullable    = false
   default     = []
 }
 
 variable "untagged_expiry_days" {
   description = "Days after which untagged manifests (failed/superseded pushes) are deleted."
   type        = number
+  nullable    = false
   default     = 14
 }
 
 variable "labels" {
   description = "Labels applied to the Artifact Registry repository."
   type        = map(string)
+  nullable    = false
   default     = {}
 }
