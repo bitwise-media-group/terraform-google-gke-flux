@@ -52,7 +52,9 @@ There is no blueprints repo; this is the canonical ordering:
 4. **flux-manifests**: cut the first release; its publish workflow pushes the signed artifact and moves the `staging`
    channel tag (promote moves `stable`).
 5. **cluster** (`examples/complete` is the shape): `terraform apply` — one apply bootstraps flux-operator, which syncs
-   the stack and brings up the platform.
+   the stack and brings up the platform. The operator/instance releases are bootstrap-only (`ignore_changes`): the
+   stack's flux component adopts them and follows the newest mirrored charts, so flux upgrades ship by publishing to
+   the registry, never by terraform.
 
 ## The terraform ↔ flux contract
 
@@ -60,10 +62,13 @@ The `cluster-vars` ConfigMap (flux-system) publishes these to the stack; the aut
 flux-manifests README:
 
 `CLUSTER_NAME`, `GCP_PROJECT`, `GCP_PROJECT_NUMBER`, `GCP_REGION`, `PLATFORM_REGISTRY`, `CONTAINER_REGISTRY`,
-`SIGNED_IDENTITY_ISSUER`, `SIGNED_IDENTITY_CHARTS`, `SIGNED_IDENTITY_IMAGES`, `DNS_ZONE_NAME`, `DNS_DOMAIN`,
-`PATCHY_DOMAIN`, `ACME_EMAIL`, `GATEWAY_ADDRESS_NAME`, `GATEWAY_IP`, `OTEL_PROJECT`, `RBAC_GROUP_VIEWERS`,
-`RBAC_GROUP_DEVELOPERS`, `RBAC_GROUP_DEVOPS`, `RBAC_GROUP_ADMINS`, `SECRET_PREFIX`, `STACK_COMPONENTS` — optional
-surfaces use the empty-string convention. `SECRET_PREFIX` (`secret_prefix`) prefixes every Secret Manager container the stack syncs, so
+`SIGNED_IDENTITY_ISSUER`, `SIGNED_IDENTITY_CHARTS`, `SIGNED_IDENTITY_IMAGES`, `SIGNED_IDENTITY_MANIFESTS`,
+`FLUX_SYNC_CHANNEL`, `DNS_ZONE_NAME`, `DNS_DOMAIN`, `PATCHY_DOMAIN`, `ACME_EMAIL`, `GATEWAY_ADDRESS_NAME`,
+`GATEWAY_IP`, `OTEL_PROJECT`, `RBAC_GROUP_VIEWERS`, `RBAC_GROUP_DEVELOPERS`, `RBAC_GROUP_DEVOPS`,
+`RBAC_GROUP_ADMINS`, `SECRET_PREFIX`, `STACK_COMPONENTS` — optional surfaces use the empty-string convention.
+`SIGNED_IDENTITY_MANIFESTS` and `FLUX_SYNC_CHANNEL` feed the manifests' flux component (flux managing flux): it
+re-renders the FluxInstance this module bootstraps, so the sync verify subject and release channel must reach the
+stack. `SECRET_PREFIX` (`secret_prefix`) prefixes every Secret Manager container the stack syncs, so
 clusters sharing a project keep distinct secrets. `STACK_COMPONENTS` (`stack_components`) elects the manifests'
 optional tier by short name (`flux-web`, `patchy`); the default elects the whole tier, and an explicit `[]` publishes
 the reserved name `none` (an empty string would re-trigger the manifests' elect-everything default). dex is not

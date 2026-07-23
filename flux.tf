@@ -37,6 +37,13 @@ locals {
     SIGNED_IDENTITY_CHARTS = var.signed_identity.containers_subject
     SIGNED_IDENTITY_IMAGES = var.signed_identity.containers_subject
 
+    # The stack's flux component (flux managing flux) re-renders the
+    # FluxInstance this module bootstraps: it needs the manifests-artifact
+    # signing subject for the sync verify patch, and the release channel for
+    # sync.ref -- both otherwise trapped inside this module's helm values.
+    SIGNED_IDENTITY_MANIFESTS = var.signed_identity.manifests_subject
+    FLUX_SYNC_CHANNEL         = var.flux.sync.ref
+
     # DNS/TLS surface (empty when var.dns.zone_name is unset).
     DNS_ZONE_NAME = var.dns.zone_name != null ? var.dns.zone_name : ""
     DNS_DOMAIN    = var.dns.zone_name != null ? local.dns_domain : ""

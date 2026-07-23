@@ -351,6 +351,16 @@ run "stack_contract_defaults" {
     condition     = output.flux.cluster_vars.DEX_DIRECTORY_SA == ""
     error_message = "without sso there is no directory SA to publish (empty-string convention)"
   }
+
+  assert {
+    condition     = output.flux.cluster_vars.FLUX_SYNC_CHANNEL == "stable"
+    error_message = "the default sync channel (stable) must reach the stack's flux component"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.SIGNED_IDENTITY_MANIFESTS == "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+    error_message = "the manifests signing subject must be published for the stack's sync verify patch"
+  }
 }
 
 run "stack_contract_nothing_elected" {

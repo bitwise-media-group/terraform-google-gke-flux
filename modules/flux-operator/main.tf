@@ -14,6 +14,13 @@
 # Everything is pulled from the platform registry (charts/flux-operator,
 # charts/flux-instance, mirrored fluxcd controller images), so the artifact
 # store must be populated by flux-containers before the first bootstrap.
+#
+# The operator and instance releases are BOOTSTRAP-ONLY (ignore_changes):
+# the manifests' flux component adopts both by release name and follows the
+# newest mirrored charts from then on, so a flux-containers publish -- never
+# a terraform apply -- is what upgrades flux on a running cluster.
+# cluster_inputs stays terraform-reconciled: cluster-vars changes flow
+# through applies.
 
 locals {
   # Platform controllers run on the always-on system node pool, never on
@@ -94,6 +101,13 @@ resource "helm_release" "flux_operator" {
 
   wait    = true
   timeout = 300
+
+  # Bootstrap-only: the stack's flux component adopts this release (same
+  # name/namespace) and upgrades it from the mirror; terraform must never
+  # fight it back.
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "helm_release" "flux_instance" {
@@ -107,13 +121,21 @@ resource "helm_release" "flux_instance" {
   values = [
     yamlencode({
       instance = {
-        distribution = merge(
-          {
-            version  = var.distribution.version
-            registry = var.distribution.registry
-          },
-          var.distribution.artifact != null ? { artifact = var.distribution.artifact } : {},
-        )
+        distribution = {
+          version  = var.distribution.version
+          registry = var.distribution.registry
+          # Never the chart default (upstream's :latest, an ungated channel
+          # that can reference controller images the mirror doesn't carry
+          # yet -- a fresh bootstrap would wedge in ImagePullBackOff).
+          # Chart version == operator version == manifests tag, so this pin
+          # is release-frozen content identical to the manifests embedded in
+          # the operator image just installed. Post-adoption, the stack's
+          # flux component drops the field entirely (embedded-only).
+          artifact = coalesce(
+            var.distribution.artifact,
+            "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v${helm_release.flux_operator.metadata.version}",
+          )
+        }
         cluster = {
           type          = "gcp"
           networkPolicy = true
@@ -135,6 +157,11 @@ resource "helm_release" "flux_instance" {
 
   wait    = true
   timeout = 300
+
+  # Bootstrap-only, as flux_operator above.
+  lifecycle {
+    ignore_changes = all
+  }
 
   # cluster_inputs delivers the cluster-vars ConfigMap the stack substitutes
   # from; installing it first means the first reconcile can succeed immediately.

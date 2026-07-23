@@ -7,7 +7,20 @@
 # terraform -> flux contract is assertable without a cluster.
 
 mock_provider "google" {}
-mock_provider "helm" {}
+mock_provider "helm" {
+  # The instance values interpolate the operator release's plan-computed
+  # metadata (the bootstrap artifact pin tracks the installed chart
+  # version), so the mock must resolve it at plan time for the values to be
+  # assertable.
+  mock_resource "helm_release" {
+    override_during = plan
+    defaults = {
+      metadata = {
+        version = "0.55.0"
+      }
+    }
+  }
+}
 
 variables {
   project        = "x-patchy-app-ab12"
@@ -55,6 +68,11 @@ run "flux_instance_contract" {
   assert {
     condition     = yamldecode(helm_release.flux_instance.values[0]).instance.sync.ref == "stable"
     error_message = "the sync ref must pass through"
+  }
+
+  assert {
+    condition     = yamldecode(helm_release.flux_instance.values[0]).instance.distribution.artifact == "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v0.55.0"
+    error_message = "the bootstrap artifact must be pinned to the release tag matching the installed operator chart, never the chart's :latest default"
   }
 
   # The verify patch is the load-bearing keyless change: find the patch
