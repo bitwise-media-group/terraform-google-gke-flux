@@ -42,6 +42,30 @@ locals {
         kind          = "Deployment"
         labelSelector = "app.kubernetes.io/part-of=flux"
       }
+    },
+    # helm-controller appends the OCI artifact digest to the chart version as
+    # semver build metadata (0.56.0+<digest12>) for every chartRef
+    # OCIRepository, so a moved tag still triggers an upgrade. Once the stack
+    # adopts the releases below, that synthetic version is what the helm
+    # release storage carries -- and the provider reads it back into state as
+    # the version to plan against, then fails to locate a chart tag that was
+    # never published (ignore_changes keeps the poisoned value). The gate rides
+    # the bootstrap FluxInstance, not just the stack's, so no ungated
+    # helm-controller ever adopts these releases. Safe because every chart
+    # OCIRepository takes its tag from a semver ResourceSetInputProvider
+    # (limit 1): a real upgrade always moves the version itself.
+    {
+      patch = yamlencode([
+        {
+          op    = "add"
+          path  = "/spec/template/spec/containers/0/args/-"
+          value = "--feature-gates=DisableChartDigestTracking=true"
+        }
+      ])
+      target = {
+        kind = "Deployment"
+        name = "helm-controller"
+      }
     }
   ]
 
