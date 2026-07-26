@@ -1,0 +1,19 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+terraform {
+  required_version = ">= 1.11, < 2.0"
+
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = ">= 7.0, < 8.0"
+    }
+    # google_project_service_identity, which the module uses to fetch the
+    # Pub/Sub service agent, has not been promoted to GA.
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = ">= 7.0, < 8.0"
+    }
+  }
+}
