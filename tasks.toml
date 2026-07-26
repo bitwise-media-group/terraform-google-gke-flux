@@ -77,12 +77,18 @@ done
 # fails when a README's generated block is stale.
 [lint]
 description = "validate fan-out, tflint, terraform-docs check, license + prose lint"
-run = [{ task = "validate" }, """
+run = [
+  { task = "validate" },
+  """
 set -eu
 tflint --init > /dev/null
 tflint --recursive --config "{{config_root}}/.tflint.hcl"
 terraform-docs --output-check .
-""", { task = "license-check" }, { task = "lint-shell" }, { task = "lint-prose" }]
+""",
+  { task = "license-check" },
+  { task = "lint-shell" },
+  { task = "lint-prose" }
+]
 
 # Driven by .terraform-docs.yml (root README + each modules/* README).
 [docs]
@@ -95,4 +101,10 @@ run = [{ task = "lint" }, { task = "test" }]
 
 [pr]
 description = "full local gate before a pull request"
-run = [{ task = "fmt" }, { task = "lint" }, { task = "docs" }, { task = "test" }, { task = "commit" }]
+run = [
+  { task = "fmt" },
+  { task = "docs" },
+  { task = "lint" },
+  { task = "test" },
+  { task = "commit" }
+]
