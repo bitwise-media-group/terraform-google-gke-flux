@@ -29,13 +29,38 @@ resource "google_service_account" "push" {
   description  = "Signs the OIDC tokens Pub/Sub presents to patchy's webhook. patchy accepts no other identity."
 }
 
+# Generates SCC's per-organization notification agent. Declared for that side
+# effect alone -- its member is unusable, see local.scc_service_agent.
+#
+# An organization that has never used SCC notifications does not have this
+# agent, and granting a role to an address that resolves to nothing fails the
+# apply outright ("Service account
+# service-org-<org>@gcp-sa-scc-notification... does not exist"). Nothing else
+# here creates it: the notification config is what would, and it cannot be
+# created until the grant below already exists.
+#
+# Create-only by design: update and destroy are no-ops, so several callers may
+# safely declare it against the same organization.
+resource "google_organization_service_identity" "scc" {
+  provider = google-beta
+
+  organization = var.organization_id
+  service      = "securitycenter.googleapis.com"
+}
+
 # SCC's service agent must publish to the topic before a notification config
 # naming it can be created.
+#
+# depends_on because the member is a composed string rather than a reference:
+# nothing else orders this after the agent exists, which is the whole failure
+# being fixed.
 resource "google_pubsub_topic_iam_member" "scc_publisher" {
   project = var.project
   topic   = google_pubsub_topic.findings.name
   role    = "roles/pubsub.publisher"
   member  = local.scc_service_agent
+
+  depends_on = [google_organization_service_identity.scc]
 }
 
 # Pub/Sub's own service agent publishes undeliverable messages to the

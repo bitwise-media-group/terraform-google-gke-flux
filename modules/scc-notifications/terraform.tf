@@ -9,13 +9,15 @@ terraform {
       source  = "hashicorp/google"
       version = ">= 7.0, < 8.0"
     }
-    # google_project_service_identity alone rides the beta provider (a
-    # lockstep superset of google): it has not been promoted to GA. It earns
-    # the dependency by returning the Pub/Sub service agent's identity
-    # directly, instead of composing "service-<project number>@gcp-sa-pubsub"
-    # by hand -- a string that is wrong silently when it is wrong at all, and
-    # that made the caller pass a project number for no other reason. Fold it
-    # back into google when it lands there.
+    # The two service-identity resources ride the beta provider (a lockstep
+    # superset of google): neither has been promoted to GA -- the GA provider
+    # ships the organization one as an empty stub. The project-scoped one
+    # returns the Pub/Sub agent's identity directly, instead of composing
+    # "service-<project number>@gcp-sa-pubsub" by hand and making the caller
+    # pass a project number for no other reason. The organization one is there
+    # only to generate SCC's agent, which no composed string can do; it
+    # returns nothing usable (main.tf). Fold both back into google when they
+    # land there.
     google-beta = {
       source  = "hashicorp/google-beta"
       version = ">= 7.0, < 8.0"

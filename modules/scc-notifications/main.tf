@@ -22,14 +22,22 @@
 # itself, from the cluster, with workload identity.
 
 locals {
-  # SCC publishes as this per-organization service agent, created by Google
-  # rather than by this module.
+  # SCC publishes as this per-organization service agent. Composed, even though
+  # google_organization_service_identity.scc (iam.tf) generates the very same
+  # agent: for securitycenter.googleapis.com the generate call returns no
+  # identity payload -- `gcloud beta services identity create --service
+  # securitycenter.googleapis.com --organization <org>` answers "Service
+  # identity created" and then an empty body -- and the provider silently
+  # leaves email/member unset when that happens ("This API may not return the
+  # service identity's details"), with no read endpoint to fill them in later.
+  # Taking .member would put an empty string in the binding below. So the
+  # resource is declared for its creating side effect and the address is
+  # composed here, which is safe: it is well-known and derived from the
+  # organization id.
   #
   # The notification config exports the same identity as .service_account, but
   # that is unusable here: SCC rejects the config unless the agent can already
   # publish, so the grant has to exist before the resource that would name it.
-  # The address is well-known and derived from the organization id, which is
-  # what makes the ordering resolvable at all.
   scc_service_agent = "serviceAccount:service-org-${var.organization_id}@gcp-sa-scc-notification.iam.gserviceaccount.com"
 
   # A dead-letter topic is how an operator sees deliveries patchy never

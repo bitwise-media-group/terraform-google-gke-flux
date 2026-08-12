@@ -99,6 +99,7 @@ No modules.
 
 | Name | Type |
 | ---- | ---- |
+| [google-beta_google_organization_service_identity.scc](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_organization_service_identity) | resource |
 | [google-beta_google_project_service_identity.pubsub](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_project_service_identity) | resource |
 | [google_project_iam_member.asset_viewers](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_pubsub_subscription.push](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_subscription) | resource |
