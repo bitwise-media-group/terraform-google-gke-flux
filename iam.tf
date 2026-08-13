@@ -84,6 +84,31 @@ resource "google_project_iam_member" "workload" {
   depends_on = [google_container_cluster.main]
 }
 
+# kyverno's image policy verifies signatures at admission/report time: always
+# a registry reader (above), and in KMS signing mode also allowed to resolve
+# the signing key — cosign's gcpkms://<name> path lists the key's versions,
+# fetches the public key and may verify remotely, so each controller gets
+# verifier + viewer on the key itself. Key-scoped, so the grant works wherever
+# the key lives; a key outside this project needs the apply identity delegated
+# setIamPolicy on it there (same delegation shape as the central-registry
+# reader grants below).
+resource "google_kms_crypto_key_iam_member" "kyverno_verifiers" {
+  for_each = {
+    for pair in setproduct(
+      local.signing_kms ? var.workload_identity.kyverno.service_accounts : [],
+      ["verifier", "viewer"],
+    ) : "${pair[0]}:${pair[1]}" => pair
+  }
+
+  crypto_key_id = var.signed_identity.kms_key_name
+  role          = "roles/cloudkms.${each.value[1]}"
+  member        = "${local.wi_principal_prefix}/ns/${var.workload_identity.kyverno.namespace}/sa/${each.value[0]}"
+
+  # the implicit workload identity pool must exist before IAM accepts its
+  # principals as members (same reasoning as the workload grants above)
+  depends_on = [google_container_cluster.main]
+}
+
 locals {
   # Every identity that must read the platform registry, composed statically
   # (the node SA email format is fixed) so the strings work as plan-time

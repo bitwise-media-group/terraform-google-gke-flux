@@ -69,29 +69,47 @@ locals {
     }
   ]
 
+  # The Secret the cluster-inputs chart renders the signing key's public half
+  # into (cosign.pub key), and the verify patch references, in keyed mode.
+  cosign_public_key_secret = "cosign-pub"
+
   # FluxInstance spec.sync has no verify field, so signature enforcement on
   # the manifests artifact rides in as a patch on the generated OCIRepository
-  # (named after the namespace, matching flux bootstrap). Verification is
-  # cosign KEYLESS: the artifact must carry a Fulcio certificate whose
-  # issuer/subject match the flux-manifests publish workflow — no key
-  # material is distributed anywhere.
+  # (named after the namespace, matching flux bootstrap). KEYLESS mode: the
+  # artifact must carry a Fulcio certificate whose issuer/subject match the
+  # flux-manifests publish workflow — no key material is distributed anywhere.
+  # KEYED mode: source-controller verifies against the public key(s) in the
+  # cosign-pub Secret (it never calls KMS itself).
   sync_verify_patches = [
     {
-      patch = yamlencode([
-        {
-          op   = "add"
-          path = "/spec/verify"
-          value = {
-            provider = "cosign"
-            matchOIDCIdentity = [
-              {
-                issuer  = var.signed_identity.issuer
-                subject = var.signed_identity.manifests_subject
-              }
-            ]
+      patch = (
+        var.signed_identity.kms_public_key_pem != null
+        ? yamlencode([
+          {
+            op   = "add"
+            path = "/spec/verify"
+            value = {
+              provider  = "cosign"
+              secretRef = { name = local.cosign_public_key_secret }
+            }
           }
-        }
-      ])
+        ])
+        : yamlencode([
+          {
+            op   = "add"
+            path = "/spec/verify"
+            value = {
+              provider = "cosign"
+              matchOIDCIdentity = [
+                {
+                  issuer  = var.signed_identity.issuer
+                  subject = var.signed_identity.manifests_subject
+                }
+              ]
+            }
+          }
+        ])
+      )
       target = {
         kind = "OCIRepository"
         name = var.namespace
@@ -199,10 +217,17 @@ resource "helm_release" "cluster_inputs" {
   chart = "${path.module}/charts/cluster-inputs"
 
   values = [
-    yamlencode({
-      clusterVars = var.cluster_vars
-      namespaces  = var.namespaces
-    })
+    yamlencode(merge(
+      {
+        clusterVars = var.cluster_vars
+        namespaces  = var.namespaces
+      },
+      # Keyed verification: the chart renders the public key into the Secret
+      # the sync verify patch (and the stack, via SecretSync) reads.
+      var.signed_identity.kms_public_key_pem == null ? {} : {
+        cosignPublicKey = var.signed_identity.kms_public_key_pem
+      },
+    ))
   ]
 
   wait    = true

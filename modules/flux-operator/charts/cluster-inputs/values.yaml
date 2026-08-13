@@ -8,3 +8,8 @@ clusterVars: {}
 # Namespaces pre-created ahead of the flux stack (adopted by kustomizations
 # via server-side apply).
 namespaces: []
+
+# The signing key's public half (PEM). Non-empty switches the flux-system
+# OCIRepository verification to keyed mode: rendered into the cosign-pub
+# Secret (key cosign.pub). Empty in keyless mode.
+cosignPublicKey: ""

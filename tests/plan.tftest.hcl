@@ -25,6 +25,15 @@ mock_provider "google" {
       address = "203.0.113.10"
     }
   }
+
+  mock_data "google_kms_crypto_key_latest_version" {
+    defaults = {
+      public_key = [{
+        algorithm = "EC_SIGN_P256_SHA256"
+        pem       = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\n-----END PUBLIC KEY-----\n"
+      }]
+    }
+  }
 }
 
 mock_provider "google-beta" {}
@@ -266,7 +275,7 @@ run "gateway_reservation" {
   command = plan
 
   assert {
-    condition     = google_compute_global_address.gateway["this"].name == "patchy-x-gateway"
+    condition     = google_compute_global_address.gateway["true"].name == "patchy-x-gateway"
     error_message = "the gateway address must default to <name>-gateway"
   }
 }
@@ -361,6 +370,73 @@ run "stack_contract_defaults" {
     condition     = output.flux.cluster_vars.SIGNED_IDENTITY_MANIFESTS == "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
     error_message = "the manifests signing subject must be published for the stack's sync verify patch"
   }
+
+  assert {
+    condition     = output.flux.cluster_vars.SIGNED_IDENTITY_KMS_KEY == ""
+    error_message = "keyless mode must blank the KMS key var (empty-string convention)"
+  }
+
+  assert {
+    condition     = length(google_kms_crypto_key_iam_member.kyverno_verifiers) == 0
+    error_message = "keyless mode must grant kyverno no KMS access"
+  }
+}
+
+run "stack_contract_kms_signing" {
+  command = plan
+
+  variables {
+    signed_identity = {
+      kms_key_name = "projects/o-foundation-7e43/locations/us-central1/keyRings/platform/cryptoKeys/cosign"
+    }
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.SIGNED_IDENTITY_KMS_KEY == "projects/o-foundation-7e43/locations/us-central1/keyRings/platform/cryptoKeys/cosign"
+    error_message = "KMS mode must publish the signing key's resource name for the manifests' gcpkms:// references"
+  }
+
+  assert {
+    condition = alltrue([
+      for key in ["SIGNED_IDENTITY_ISSUER", "SIGNED_IDENTITY_CHARTS", "SIGNED_IDENTITY_IMAGES", "SIGNED_IDENTITY_MANIFESTS"] :
+      output.flux.cluster_vars[key] == ""
+    ])
+    error_message = "KMS mode must blank every keyless identity var — the manifests select the mode by guarding on empties"
+  }
+
+  assert {
+    condition     = google_kms_crypto_key_iam_member.kyverno_verifiers["kyverno-admission-controller:verifier"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/kyverno/sa/kyverno-admission-controller"
+    error_message = "kyverno's admission controller must be able to verify against the signing key as a direct federated principal"
+  }
+
+  assert {
+    condition     = contains(keys(google_kms_crypto_key_iam_member.kyverno_verifiers), "kyverno-reports-controller:viewer")
+    error_message = "kyverno's controllers need viewer too (cosign lists versions behind a versionless gcpkms:// reference)"
+  }
+}
+
+run "signed_identity_modes_exclusive" {
+  command = plan
+
+  variables {
+    signed_identity = {
+      manifests_subject  = "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+      containers_subject = "^https://github\\.com/bitwise-media-group/flux-containers/\\.github/workflows/publish\\.yaml@refs/heads/main$"
+      kms_key_name       = "projects/o-foundation-7e43/locations/us-central1/keyRings/platform/cryptoKeys/cosign"
+    }
+  }
+
+  expect_failures = [var.signed_identity]
+}
+
+run "signed_identity_needs_a_mode" {
+  command = plan
+
+  variables {
+    signed_identity = {}
+  }
+
+  expect_failures = [var.signed_identity]
 }
 
 run "stack_contract_nothing_elected" {

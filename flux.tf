@@ -9,6 +9,11 @@
 # value; manifests guard on empties.
 
 locals {
+  # Which cosign mode verifies the platform artifacts: keyless (Fulcio
+  # identities) or a KMS signing key. var.signed_identity's validations
+  # guarantee exactly one.
+  signing_kms = var.signed_identity.kms_key_name != null
+
   # Charts, tag listings and the sync artifact all pull straight from the
   # platform registry; pods pull mirrored images from the same place (single
   # co-located registry — no pull-through cache, arc's local-registry mode).
@@ -29,19 +34,24 @@ locals {
     PLATFORM_REGISTRY  = var.platform_registry
     CONTAINER_REGISTRY = local.container_registry
 
-    # Cosign keyless verification identities (Go regexps over the Fulcio
-    # certificate): charts and mirrored images are signed by the
-    # flux-containers publish workflow; the OCIRepository verify blocks and
-    # the Kyverno image policy match these.
-    SIGNED_IDENTITY_ISSUER = var.signed_identity.issuer
-    SIGNED_IDENTITY_CHARTS = var.signed_identity.containers_subject
-    SIGNED_IDENTITY_IMAGES = var.signed_identity.containers_subject
+    # Cosign verification, one mode or the other (the empty-string convention
+    # marks the inactive one). Keyless publishes the Fulcio identities (Go
+    # regexps): charts and mirrored images are signed by the flux-containers
+    # publish workflow; the OCIRepository verify blocks and the Kyverno image
+    # policy match these. KMS publishes the signing key's resource name
+    # instead, which Kyverno resolves as gcpkms://<name> and the
+    # OCIRepositories verify via the cosign-pub public-key Secret the
+    # bootstrap distributes.
+    SIGNED_IDENTITY_ISSUER  = local.signing_kms ? "" : var.signed_identity.issuer
+    SIGNED_IDENTITY_CHARTS  = local.signing_kms ? "" : var.signed_identity.containers_subject
+    SIGNED_IDENTITY_IMAGES  = local.signing_kms ? "" : var.signed_identity.containers_subject
+    SIGNED_IDENTITY_KMS_KEY = local.signing_kms ? var.signed_identity.kms_key_name : ""
 
     # The stack's flux component (flux managing flux) re-renders the
     # FluxInstance this module bootstraps: it needs the manifests-artifact
     # signing subject for the sync verify patch, and the release channel for
     # sync.ref -- both otherwise trapped inside this module's helm values.
-    SIGNED_IDENTITY_MANIFESTS = var.signed_identity.manifests_subject
+    SIGNED_IDENTITY_MANIFESTS = local.signing_kms ? "" : var.signed_identity.manifests_subject
     FLUX_SYNC_CHANNEL         = var.flux.sync.ref
 
     # DNS/TLS surface (empty when var.dns.zone_name is unset).
@@ -90,6 +100,18 @@ locals {
   )
 }
 
+# The signing key's public half — cosign verification inside the cluster
+# never needs the private key, and Flux verifies against a public-key Secret
+# rather than calling KMS, so this is the only key material that travels. The
+# latest enabled version matches how cosign resolves a versionless gcpkms://
+# reference.
+data "google_kms_crypto_key_latest_version" "signing" {
+  for_each = toset(local.signing_kms ? ["true"] : [])
+
+  crypto_key = var.signed_identity.kms_key_name
+  filter     = "state:ENABLED"
+}
+
 module "flux_operator" {
   source = "./modules/flux-operator"
 
@@ -117,8 +139,9 @@ module "flux_operator" {
   }
 
   signed_identity = {
-    issuer            = var.signed_identity.issuer
-    manifests_subject = var.signed_identity.manifests_subject
+    issuer             = local.signing_kms ? null : var.signed_identity.issuer
+    manifests_subject  = local.signing_kms ? null : var.signed_identity.manifests_subject
+    kms_public_key_pem = local.signing_kms ? data.google_kms_crypto_key_latest_version.signing["true"].public_key[0].pem : null
   }
 
   kustomize_patches = var.flux.kustomize_patches

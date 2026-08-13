@@ -99,6 +99,28 @@ resource "google_artifact_registry_repository_iam_member" "manifest_publisher" {
   member     = google_service_account.manifest_publisher.member
 }
 
+# KMS signing mode: cosign signs with gcpkms://<key> from the publish
+# workflows — signerVerifier carries useToSign/viewPublicKey, and viewer the
+# get/list reads cosign performs around a versionless key reference. Absent
+# entirely in keyless mode. Key-scoped, so the grant works wherever the key
+# lives; the apply identity needs setIamPolicy delegated on it there.
+resource "google_kms_crypto_key_iam_member" "publisher_signing" {
+  for_each = {
+    for pair in setproduct(
+      var.signing_kms_key_name != null ? ["chart", "manifest"] : [],
+      ["signerVerifier", "viewer"],
+    ) : "${pair[0]}:${pair[1]}" => pair
+  }
+
+  crypto_key_id = var.signing_kms_key_name
+  role          = "roles/cloudkms.${each.value[1]}"
+  member = (
+    each.value[0] == "chart"
+    ? google_service_account.chart_publisher.member
+    : google_service_account.manifest_publisher.member
+  )
+}
+
 # Read access for cluster identities living in OTHER projects (the store is
 # central — o-foundation — while clusters run in app projects whose apply
 # identities cannot grant IAM here). Content security comes from cosign

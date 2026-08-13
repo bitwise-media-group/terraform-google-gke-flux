@@ -81,6 +81,26 @@ variable "wif" {
   }
 }
 
+variable "signing_kms_key_name" {
+  description = <<-EOT
+    Asymmetric SIGN Cloud KMS crypto key the publish workflows sign artifacts with (cosign sign --key gcpkms://<name>),
+    instead of keyless Fulcio identities. When set, both publisher service accounts get cloudkms signerVerifier +
+    viewer on the key; feed the same name to the cluster module's signed_identity.kms_key_name so verification
+    matches. Null keeps signing keyless (the signed_identity_subjects output). The key itself lives outside this
+    module — signing identity should outlive any one store.
+  EOT
+  type        = string
+  nullable    = true
+  default     = null
+
+  validation {
+    condition = var.signing_kms_key_name == null || can(
+      regex("^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$", var.signing_kms_key_name)
+    )
+    error_message = "signing_kms_key_name must be a Cloud KMS crypto key resource name: projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>."
+  }
+}
+
 variable "reader_members" {
   description = <<-EOT
     IAM members granted artifactregistry.reader on the repository. Coarse grants are the intended shape (content

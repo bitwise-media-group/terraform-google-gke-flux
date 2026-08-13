@@ -48,7 +48,7 @@ output "manifest_publisher" {
 }
 
 output "signed_identity_subjects" {
-  description = "Fulcio certificate-subject regexps for the publishing workflows — feed these to the cluster module's signed_identity variable and the flux-manifests cluster vars."
+  description = "Fulcio certificate-subject regexps for the publishing workflows (keyless mode) — feed these to the cluster module's signed_identity variable and the flux-manifests cluster vars. Irrelevant when signing_kms_key_name selects KMS signing."
   value = {
     containers = "^https://github\\.com/${var.github.org}/${var.github.containers}/\\.github/workflows/publish\\.yaml@refs/heads/main$"
     manifests  = "^https://github\\.com/${var.github.org}/${var.github.manifests}/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
@@ -56,4 +56,9 @@ output "signed_identity_subjects" {
     # signed_identity.manifests_subject instead of the release identity above
     manifests_edge = "^https://github\\.com/${var.github.org}/${var.github.manifests}/\\.github/workflows/publish-edge\\.yaml@refs/heads/main$"
   }
+}
+
+output "signing_kms_key_name" {
+  description = "The Cloud KMS signing key the publishers sign with (null in keyless mode) — feed it to the cluster module's signed_identity.kms_key_name so verification matches."
+  value       = var.signing_kms_key_name
 }

@@ -41,6 +41,7 @@ No modules.
 | [google_artifact_registry_repository_iam_member.chart_publisher](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/artifact_registry_repository_iam_member) | resource |
 | [google_artifact_registry_repository_iam_member.manifest_publisher](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/artifact_registry_repository_iam_member) | resource |
 | [google_artifact_registry_repository_iam_member.readers](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/artifact_registry_repository_iam_member) | resource |
+| [google_kms_crypto_key_iam_member.publisher_signing](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/kms_crypto_key_iam_member) | resource |
 | [google_service_account.chart_publisher](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account.manifest_publisher](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account_iam_member.chart_publisher_wif](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_iam_member) | resource |
@@ -59,6 +60,7 @@ No modules.
 | promotion\_environment | GitHub environment (protected, reviewer-gated) whose jobs may move the stable channel tag. | `string` | `"production"` | no |
 | reader\_members | IAM members granted artifactregistry.reader on the repository. Coarse grants are the intended shape (content<br/>security is cosign verification, not read denial): the org-wide service-account principal set plus one<br/>all-identities workload-identity-pool principalSet per cluster project. Per-identity least privilege remains<br/>possible via each cluster's registry\_reader\_members output. | `list(string)` | `[]` | no |
 | repository\_id | Artifact Registry repository id. Charts land under charts/<name>, images under images/<original-path>, and the<br/>manifests artifact at flux-manifests within it. | `string` | `"platform"` | no |
+| signing\_kms\_key\_name | Asymmetric SIGN Cloud KMS crypto key the publish workflows sign artifacts with (cosign sign --key gcpkms://<name>),<br/>instead of keyless Fulcio identities. When set, both publisher service accounts get cloudkms signerVerifier +<br/>viewer on the key; feed the same name to the cluster module's signed\_identity.kms\_key\_name so verification<br/>matches. Null keeps signing keyless (the signed\_identity\_subjects output). The key itself lives outside this<br/>module — signing identity should outlive any one store. | `string` | `null` | no |
 | untagged\_expiry\_days | Days after which untagged manifests (failed/superseded pushes) are deleted. | `number` | `14` | no |
 
 ## Outputs
@@ -72,6 +74,7 @@ No modules.
 | manifest\_publisher | Manifest publisher service account (email is the service\_account input of google-github-actions/auth in flux-manifests, set as the GCP\_CHART\_PUBLISHER\_SA / GCP\_MANIFEST\_PUBLISHER\_SA org variables). |
 | platform\_registry | The platform registry prefix — the value of the cluster's platform\_registry variable and the PLATFORM\_REGISTRY cluster var. |
 | registry\_host | Registry hostname for docker/helm/crane login (oauth2accesstoken + access token). |
-| signed\_identity\_subjects | Fulcio certificate-subject regexps for the publishing workflows — feed these to the cluster module's signed\_identity variable and the flux-manifests cluster vars. |
+| signed\_identity\_subjects | Fulcio certificate-subject regexps for the publishing workflows (keyless mode) — feed these to the cluster module's signed\_identity variable and the flux-manifests cluster vars. Irrelevant when signing\_kms\_key\_name selects KMS signing. |
+| signing\_kms\_key\_name | The Cloud KMS signing key the publishers sign with (null in keyless mode) — feed it to the cluster module's signed\_identity.kms\_key\_name so verification matches. |
 | workload\_identity\_provider | Full WIF provider resource name — the workload\_identity\_provider input of google-github-actions/auth (set as the GCP\_WIF\_PROVIDER repo variable in the publishing repos). |
 <!-- END_TF_DOCS -->

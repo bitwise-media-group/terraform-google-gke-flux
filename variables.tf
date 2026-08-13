@@ -186,15 +186,47 @@ variable "platform_registry" {
 
 variable "signed_identity" {
   description = <<-EOT
-    Cosign keyless verification identities (Go regexps matched against the Fulcio certificate). The artifact-store
-    module's signed_identity_subjects output provides the subjects; the issuer default matches GitHub Actions.
+    Cosign verification identity for every platform artifact — exactly one of two modes.
+
+    KEYLESS (subjects set, kms_key_name null): Go regexps matched against the Fulcio certificate of GitHub Actions OIDC
+    signatures. The artifact-store module's signed_identity_subjects output provides the subjects; the issuer default
+    matches GitHub Actions. Cloud agnostic — the signing identities are GitHub's, not Google's, so the same values
+    serve clusters on any cloud.
+
+    KMS (kms_key_name set, subjects null): the publish workflows sign with an asymmetric SIGN Cloud KMS key
+    (cosign sign --key gcpkms://<name>; the artifact-store module's signing_kms_key_name grants the publishers
+    signerVerifier). The key's public half is distributed to the cluster as the flux-system cosign-pub Secret for the
+    bootstrap verify patch, the key name is published as the SIGNED_IDENTITY_KMS_KEY cluster var, and kyverno's
+    controllers get cloudkms verifier/viewer on the key to resolve it at admission time.
   EOT
   type = object({
     issuer             = optional(string, "^https://token\\.actions\\.githubusercontent\\.com$")
-    manifests_subject  = string
-    containers_subject = string
+    manifests_subject  = optional(string)
+    containers_subject = optional(string)
+    kms_key_name       = optional(string)
   })
   nullable = false
+
+  validation {
+    condition = var.signed_identity.kms_key_name != null || (
+      var.signed_identity.manifests_subject != null && var.signed_identity.containers_subject != null
+    )
+    error_message = "Keyless verification needs both manifests_subject and containers_subject (or set kms_key_name for KMS mode)."
+  }
+
+  validation {
+    condition = var.signed_identity.kms_key_name == null || (
+      var.signed_identity.manifests_subject == null && var.signed_identity.containers_subject == null
+    )
+    error_message = "kms_key_name and the keyless subjects are mutually exclusive — verification is keyless or KMS, never both."
+  }
+
+  validation {
+    condition = var.signed_identity.kms_key_name == null || can(
+      regex("^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$", var.signed_identity.kms_key_name)
+    )
+    error_message = "signed_identity.kms_key_name must be a Cloud KMS crypto key resource name: projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>."
+  }
 }
 
 variable "dns" {

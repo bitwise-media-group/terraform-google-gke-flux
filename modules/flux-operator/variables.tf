@@ -71,14 +71,24 @@ variable "sync" {
 
 variable "signed_identity" {
   description = <<-EOT
-    Cosign keyless identity (Go regexps over the Fulcio certificate) enforced on the generated flux-system
-    OCIRepository, so an unsigned or tampered manifests artifact is never applied.
+    Cosign verification enforced on the generated flux-system OCIRepository, so an unsigned or tampered manifests
+    artifact is never applied. Exactly one mode: keyless (issuer + manifests_subject, Go regexps over the Fulcio
+    certificate) or a signing key's public half (kms_public_key_pem, distributed as the cosign-pub Secret the verify
+    patch references — source-controller verifies against the public key and never calls KMS).
   EOT
   type = object({
-    issuer            = string
-    manifests_subject = string
+    issuer             = optional(string)
+    manifests_subject  = optional(string)
+    kms_public_key_pem = optional(string)
   })
   nullable = false
+
+  validation {
+    condition = (var.signed_identity.kms_public_key_pem != null) != (
+      var.signed_identity.issuer != null && var.signed_identity.manifests_subject != null
+    )
+    error_message = "signed_identity is keyless (issuer + manifests_subject) or keyed (kms_public_key_pem), never both or neither."
+  }
 }
 
 variable "kustomize_patches" {

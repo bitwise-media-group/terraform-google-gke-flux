@@ -95,6 +95,31 @@ run "flux_instance_contract" {
   }
 }
 
+run "keyed_verification" {
+  command = plan
+
+  variables {
+    signed_identity = {
+      kms_public_key_pem = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\n-----END PUBLIC KEY-----\n"
+    }
+  }
+
+  assert {
+    condition     = yamldecode(local.sync_verify_patches[0].patch)[0].value.secretRef.name == "cosign-pub"
+    error_message = "keyed mode must verify against the cosign-pub public-key Secret — source-controller never calls KMS"
+  }
+
+  assert {
+    condition     = !can(yamldecode(local.sync_verify_patches[0].patch)[0].value.matchOIDCIdentity)
+    error_message = "keyed mode must not also carry a keyless identity match"
+  }
+
+  assert {
+    condition     = strcontains(helm_release.cluster_inputs.values[0], "cosignPublicKey")
+    error_message = "the cluster-inputs chart must receive the public key to render the cosign-pub Secret"
+  }
+}
+
 run "cluster_inputs_contract" {
   command = plan
 

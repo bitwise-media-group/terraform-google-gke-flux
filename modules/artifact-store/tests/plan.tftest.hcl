@@ -118,6 +118,46 @@ run "cluster_readers" {
   }
 }
 
+run "kms_signing_grants_publishers" {
+  command = plan
+
+  variables {
+    signing_kms_key_name = "projects/o-foundation-7e43/locations/us-central1/keyRings/platform/cryptoKeys/cosign"
+  }
+
+  assert {
+    condition     = google_kms_crypto_key_iam_member.publisher_signing["chart:signerVerifier"].role == "roles/cloudkms.signerVerifier"
+    error_message = "KMS signing mode must grant the chart publisher signerVerifier on the signing key"
+  }
+
+  assert {
+    condition = alltrue([
+      for grant in values(google_kms_crypto_key_iam_member.publisher_signing) :
+      grant.crypto_key_id == "projects/o-foundation-7e43/locations/us-central1/keyRings/platform/cryptoKeys/cosign"
+    ])
+    error_message = "every signing grant must be scoped to the signing key itself"
+  }
+
+  assert {
+    condition     = sort(keys(google_kms_crypto_key_iam_member.publisher_signing)) == tolist(["chart:signerVerifier", "chart:viewer", "manifest:signerVerifier", "manifest:viewer"])
+    error_message = "both publishers must get signerVerifier + viewer (cosign's get/list reads around a versionless key reference)"
+  }
+
+  assert {
+    condition     = output.signing_kms_key_name == "projects/o-foundation-7e43/locations/us-central1/keyRings/platform/cryptoKeys/cosign"
+    error_message = "the signing key must be exported for wiring into the cluster module's signed_identity"
+  }
+}
+
+run "keyless_signing_grants_no_kms" {
+  command = plan
+
+  assert {
+    condition     = length(google_kms_crypto_key_iam_member.publisher_signing) == 0
+    error_message = "keyless mode must grant the publishers no KMS access"
+  }
+}
+
 run "signed_identities" {
   command = plan
 
