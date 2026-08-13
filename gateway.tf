@@ -15,14 +15,21 @@
 # (reserve_static_ip = false + address_name).
 
 resource "google_compute_global_address" "gateway" {
-  for_each = toset(var.gateway.reserve_static_ip ? ["this"] : [])
+  for_each = toset(var.gateway.reserve_static_ip ? ["true"] : [])
 
   project = var.project
   name    = coalesce(var.gateway.address_name, "${var.name}-gateway")
 }
 
+# The instance key used to be "this"; keep existing reservations (and their
+# IPs) in place across the rename.
+moved {
+  from = google_compute_global_address.gateway["this"]
+  to   = google_compute_global_address.gateway["true"]
+}
+
 data "google_compute_global_address" "gateway" {
-  for_each = toset(!var.gateway.reserve_static_ip && var.gateway.address_name != null ? ["this"] : [])
+  for_each = toset(!var.gateway.reserve_static_ip && var.gateway.address_name != null ? ["true"] : [])
 
   project = var.project
   name    = var.gateway.address_name
@@ -31,12 +38,12 @@ data "google_compute_global_address" "gateway" {
 locals {
   gateway_address_name = (
     var.gateway.reserve_static_ip
-    ? google_compute_global_address.gateway["this"].name
+    ? google_compute_global_address.gateway["true"].name
     : coalesce(var.gateway.address_name, "")
   )
   gateway_address = (
     var.gateway.reserve_static_ip
-    ? google_compute_global_address.gateway["this"].address
-    : (var.gateway.address_name != null ? data.google_compute_global_address.gateway["this"].address : "")
+    ? google_compute_global_address.gateway["true"].address
+    : (var.gateway.address_name != null ? data.google_compute_global_address.gateway["true"].address : "")
   )
 }

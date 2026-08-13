@@ -28,7 +28,7 @@ provider "google-beta" {
   region  = var.region
 }
 
-data "google_project" "this" {}
+data "google_project" "current" {}
 
 module "scc_notifications" {
   source = "../../modules/scc-notifications"
@@ -45,6 +45,6 @@ module "scc_notifications" {
   # affected resource's ownership labels, which takes read-only Asset
   # Inventory access. Drop this when the grant is owned centrally.
   asset_viewer_members = [
-    "principal://iam.googleapis.com/projects/${data.google_project.this.number}/locations/global/workloadIdentityPools/${data.google_project.this.project_id}.svc.id.goog/subject/ns/patchy/sa/patchy-context-controller",
+    "principal://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${data.google_project.current.project_id}.svc.id.goog/subject/ns/patchy/sa/patchy-context-controller",
   ]
 }

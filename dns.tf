@@ -9,7 +9,7 @@
 # the name through to external-dns via cluster vars.
 
 data "google_dns_managed_zone" "cluster" {
-  for_each = toset(var.dns.zone_name != null ? ["this"] : [])
+  for_each = toset(var.dns.zone_name != null ? ["true"] : [])
 
   project = var.project
   name    = var.dns.zone_name
@@ -17,7 +17,7 @@ data "google_dns_managed_zone" "cluster" {
 
 locals {
   # Zone apex without the trailing dot (patchy.bitwisemedia.co.uk.).
-  dns_domain = var.dns.zone_name != null ? trimsuffix(data.google_dns_managed_zone.cluster["this"].dns_name, ".") : null
+  dns_domain = var.dns.zone_name != null ? trimsuffix(data.google_dns_managed_zone.cluster["true"].dns_name, ".") : null
 
   # The public host the patchy webhook is served on: the zone apex unless the
   # caller narrows it to a sub-host.

@@ -114,7 +114,7 @@ resource "google_pubsub_subscription" "push" {
   }
 
   dynamic "dead_letter_policy" {
-    for_each = local.dead_letter_enabled ? ["this"] : []
+    for_each = local.dead_letter_enabled ? ["true"] : []
 
     content {
       dead_letter_topic     = google_pubsub_topic.dead_letter[0].id

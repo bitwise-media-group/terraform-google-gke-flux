@@ -47,7 +47,7 @@ output "dns" {
     zone_name    = var.dns.zone_name
     domain       = local.dns_domain
     host         = local.patchy_domain
-    name_servers = data.google_dns_managed_zone.cluster["this"].name_servers
+    name_servers = data.google_dns_managed_zone.cluster["true"].name_servers
   }
 }
 

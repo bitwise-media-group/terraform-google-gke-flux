@@ -117,7 +117,7 @@ resource "google_container_cluster" "main" {
   }
 
   dynamic "master_authorized_networks_config" {
-    for_each = length(var.master_authorized_networks) > 0 ? ["this"] : []
+    for_each = length(var.master_authorized_networks) > 0 ? ["true"] : []
 
     content {
       dynamic "cidr_blocks" {
