@@ -380,6 +380,29 @@ run "stack_contract_defaults" {
     condition     = length(google_kms_crypto_key_iam_member.kyverno_verifiers) == 0
     error_message = "keyless mode must grant kyverno no KMS access"
   }
+
+  assert {
+    condition     = output.flux.cluster_vars.CLAUDE_PROVIDER == "anthropic"
+    error_message = "the claude provider must default to anthropic (the egress-broker's default upstream)"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.CLAUDE_ANTHROPIC_AUTH == "token"
+    error_message = "anthropic auth must default to token"
+  }
+
+  assert {
+    condition = alltrue([
+      for key in ["CLAUDE_BEDROCK_REGION", "CLAUDE_BEDROCK_REGION_PREFIX", "CLAUDE_VERTEX_REGION", "CLAUDE_VERTEX_PROJECT_ID", "CLAUDE_MODEL_MAP"] :
+      output.flux.cluster_vars[key] == ""
+    ])
+    error_message = "every non-anthropic provider var must publish empty by default (empty-string convention; bedrock is always empty on GKE)"
+  }
+
+  assert {
+    condition     = !contains(keys(google_project_iam_member.workload), "patchy-egress-broker:roles/aiplatform.user")
+    error_message = "the anthropic provider must grant the egress-broker no Vertex AI access"
+  }
 }
 
 run "stack_contract_kms_signing" {
@@ -412,6 +435,49 @@ run "stack_contract_kms_signing" {
   assert {
     condition     = contains(keys(google_kms_crypto_key_iam_member.kyverno_verifiers), "kyverno-reports-controller:viewer")
     error_message = "kyverno's controllers need viewer too (cosign lists versions behind a versionless gcpkms:// reference)"
+  }
+}
+
+run "claude_provider_vertex" {
+  command = plan
+
+  variables {
+    patchy = {
+      claude = {
+        provider = {
+          name = "vertex"
+          model_map = {
+            "anthropic/claude-opus-5"   = "claude-opus-5"
+            "anthropic/claude-sonnet-5" = "claude-sonnet-5"
+          }
+        }
+      }
+    }
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.CLAUDE_VERTEX_REGION == "us-central1"
+    error_message = "the vertex region must default onto the cluster's own region"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.CLAUDE_VERTEX_PROJECT_ID == "x-patchy-app-ab12"
+    error_message = "the vertex project must default onto the cluster's own project"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.CLAUDE_MODEL_MAP == "anthropic/claude-opus-5=claude-opus-5,anthropic/claude-sonnet-5=claude-sonnet-5"
+    error_message = "the model map must publish as comma-joined sorted canonical=providerID pairs"
+  }
+
+  assert {
+    condition     = google_project_iam_member.workload["patchy-egress-broker:roles/aiplatform.user"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/patchy/sa/patchy-egress-broker"
+    error_message = "the egress-broker must get aiplatform.user as a direct federated principal"
+  }
+
+  assert {
+    condition     = google_project_iam_member.workload["patchy-egress-broker:roles/aiplatform.user"].project == "x-patchy-app-ab12"
+    error_message = "the vertex grant must land in the serving project (the cluster's own by default)"
   }
 }
 

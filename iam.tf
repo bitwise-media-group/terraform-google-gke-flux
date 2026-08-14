@@ -55,7 +55,21 @@ locals {
     }
   }
 
-  workload_grants = merge(local.kyverno_grants, local.dns_grants, local.otel_grants)
+  # The patchy egress-broker terminates all claude-runner model traffic; on
+  # the vertex provider it calls the Vertex AI API itself, so its KSA gets
+  # aiplatform.user in the serving project (the configured vertex project, or
+  # the cluster's own) as a direct federated principal. The anthropic provider
+  # authenticates with an API key/token instead — no grant.
+  patchy_grants = var.patchy.claude.provider.name != "vertex" ? {} : {
+    patchy-egress-broker = {
+      namespace       = var.workload_identity.patchy_egress_broker.namespace
+      service_account = var.workload_identity.patchy_egress_broker.service_account
+      roles           = ["roles/aiplatform.user"]
+      project         = coalesce(var.patchy.claude.provider.vertex_project_id, var.project)
+    }
+  }
+
+  workload_grants = merge(local.kyverno_grants, local.dns_grants, local.otel_grants, local.patchy_grants)
 
   workload_role_grants = merge([
     for name, grant in local.workload_grants : {

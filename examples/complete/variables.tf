@@ -119,6 +119,22 @@ variable "stack_components" {
   default     = ["flux-web", "patchy"]
 }
 
+variable "patchy" {
+  description = "Patchy platform knobs (module patchy input): claude.provider picks the egress-broker's model provider, published as the CLAUDE_* cluster vars. Defaults to anthropic with token auth."
+  type = object({
+    claude = optional(object({
+      provider = optional(object({
+        name              = optional(string, "anthropic")
+        anthropic_auth    = optional(string, "token")
+        vertex_region     = optional(string)
+        vertex_project_id = optional(string)
+        model_map         = optional(map(string), {})
+      }), {})
+    }), {})
+  })
+  default = {}
+}
+
 variable "sso" {
   description = "Platform SSO (module sso input): deploys dex and wires elected relying parties to it. directory_sa (the Workspace directory-reader SA) is required when enabled; client_rotation bumps mint new client secrets."
   type = object({

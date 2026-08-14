@@ -94,6 +94,7 @@ module "cluster" {
   # SSO toggle that deploys dex and wires the elected components to it.
   secret_prefix    = var.secret_prefix
   stack_components = var.stack_components
+  patchy           = var.patchy
   sso              = var.sso
 
   flux = {

@@ -287,6 +287,12 @@ variable "workload_identity" {
       # admission/report time
       service_accounts = optional(list(string), ["kyverno-admission-controller", "kyverno-reports-controller"])
     }), {})
+    # the patchy egress-broker calls the Vertex AI API itself when
+    # patchy.claude.provider selects vertex
+    patchy_egress_broker = optional(object({
+      namespace       = optional(string, "patchy")
+      service_account = optional(string, "patchy-egress-broker")
+    }), {})
     # dex impersonates the directory-reader SA via the classic
     # annotation-based flow, so its pair binds workloadIdentityUser on that
     # SA (sso.tf) instead of receiving a direct principal:// grant
@@ -368,6 +374,55 @@ variable "stack_components" {
       for component in var.stack_components : contains(["flux-web", "patchy"], component)
     ])
     error_message = "stack_components entries must be optional-tier short names: flux-web, patchy (dex rides the sso toggle)."
+  }
+}
+
+variable "patchy" {
+  description = <<-EOT
+    Patchy platform knobs. claude.provider configures the model provider the patchy egress-broker (the in-cluster proxy
+    terminating all claude-runner model traffic) forwards to, published as the CLAUDE_* cluster vars: CLAUDE_PROVIDER,
+    CLAUDE_ANTHROPIC_AUTH, CLAUDE_BEDROCK_REGION, CLAUDE_BEDROCK_REGION_PREFIX, CLAUDE_VERTEX_REGION,
+    CLAUDE_VERTEX_PROJECT_ID, CLAUDE_MODEL_MAP. name is anthropic or vertex — bedrock needs AWS ambient credentials the
+    broker cannot get on GKE, and foundry is deliberately unsupported for now. anthropic_auth picks how the anthropic
+    provider authenticates (key or token). The vertex knobs default onto the cluster's own region/project; when the
+    provider is vertex the broker's KSA also gets roles/aiplatform.user in the serving project (iam.tf). model_map
+    translates canonical model ids to provider model ids, published sorted as canonical=providerID pairs.
+  EOT
+  type = object({
+    # Harness-scoped: the model provider belongs to the claude runner alone.
+    # A future codex/copilot provider surface slots in as a sibling key
+    # (patchy.codex.provider) without renaming anything here.
+    claude = optional(object({
+      provider = optional(object({
+        name              = optional(string, "anthropic") # anthropic or vertex
+        anthropic_auth    = optional(string, "token")     # key or token
+        vertex_region     = optional(string)              # defaults to the cluster region
+        vertex_project_id = optional(string)              # defaults to the cluster project
+        model_map         = optional(map(string), {})     # canonical id -> provider model id
+      }), {})
+    }), {})
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = contains(["anthropic", "vertex"], var.patchy.claude.provider.name)
+    error_message = "patchy.claude.provider.name must be anthropic or vertex (bedrock needs AWS ambient credentials the broker cannot get on GKE; foundry is deliberately unsupported for now)."
+  }
+
+  validation {
+    condition     = contains(["key", "token"], var.patchy.claude.provider.anthropic_auth)
+    error_message = "patchy.claude.provider.anthropic_auth must be key or token."
+  }
+
+  validation {
+    condition     = var.patchy.claude.provider.name == "vertex" || var.patchy.claude.provider.vertex_region == null
+    error_message = "patchy.claude.provider.vertex_region requires provider name vertex."
+  }
+
+  validation {
+    condition     = var.patchy.claude.provider.name == "vertex" || var.patchy.claude.provider.vertex_project_id == null
+    error_message = "patchy.claude.provider.vertex_project_id requires provider name vertex."
   }
 }
 
