@@ -48,13 +48,24 @@ variable "stack_components" {
 
 variable "sso_enabled" {
   description = <<-EOT
-    Whether the cluster deploys dex -- pass the cluster module's sso.enabled. Creates the dex-google-* containers: the
-    Google OAuth app dex's google connector signs users in with (an OAuth client cannot be terraformed -- create it in
-    the console and add the versions out of band) plus the Workspace admin email the directory reads impersonate.
+    Whether the cluster deploys dex -- pass the cluster module's sso.enabled. Gates the generic per-connector
+    containers driven by sso_connectors: on its own this creates nothing -- no connector is created by default.
   EOT
   type        = bool
   nullable    = false
   default     = false
+}
+
+variable "sso_connectors" {
+  description = <<-EOT
+    Per-connector out-of-band credential fields -- pass the cluster module's sso.connectors, projected to id =>
+    secrets (e.g. { for id, c in var.sso.connectors : id => c.secrets }). Creates one dex-<id>-<field> Secret Manager
+    container per (connector, field) pair, gated on sso_enabled; populate versions out of band (an OAuth client
+    cannot be terraformed).
+  EOT
+  type        = map(set(string))
+  nullable    = false
+  default     = {}
 }
 
 variable "agent_harnesses" {

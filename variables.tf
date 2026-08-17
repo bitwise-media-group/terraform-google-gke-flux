@@ -441,29 +441,42 @@ variable "patchy" {
 
 variable "sso" {
   description = <<-EOT
-    Platform SSO: deploys dex as the OIDC identity provider (Google Workspace upstream) and wires every elected relying
-    party to it -- generated client pairs (sso.tf), the DEX_DIRECTORY_SA cluster var, and the human-facing HTTPRoutes.
-    directory_sa is the keyless Workspace directory-reader service account dex impersonates for group claims
-    (domain-wide delegation) -- required when enabled. This module binds workloadIdentityUser on it for the cluster's
-    dex KSA (sso.tf): the applying identity needs the get/setIamPolicy delegation cloud-accounts grants the app's
-    terraform-apply container on that SA. Requires the DNS surface: the issuer and redirect URLs need the served
-    domain. client_rotation holds the
-    per-client rotation counters (keys: flux-web, patchy-status; absent keys default to 1) -- bump one to mint a new
-    client secret; the raw dex-client-* container and any config document embedding the same value rewrite in one apply,
-    so the pair cannot drift (then restart dex: it reads client secrets from env at startup)."
+    Platform SSO: deploys dex as the OIDC identity provider and wires every elected relying party to it -- generated
+    client pairs (sso.tf), the DEX_CONNECTORS/DEX_DIRECTORY_SA cluster vars, and the human-facing HTTPRoutes. Upstream
+    identity is arbitrary: connectors is a map of dex connector declarations, keyed by a caller-chosen id (e.g.
+    "google", "okta") --
+      - type: the dex connector type (oidc, saml, google, microsoft, github, ...), passed through verbatim, not
+        validated against dex's own supported list.
+      - name: the display name shown on dex's login screen; defaults to the connector id when unset.
+      - config: the connector's own config: block, passed through near-verbatim (issuer, clientID, scopes,
+        claimMapping, adminEmail, ...) -- a redirectURI is injected by default (sso.tf) unless the caller sets one.
+      - secrets: the out-of-band credential fields this connector needs (default ["client-id", "client-secret"]).
+        Each field becomes a dex-<id>-<field> Secret Manager container (modules/secrets, created out of band -- an
+        OAuth client cannot be terraformed) and a <ID>_<FIELD> env var (uppercased, dashes -> underscores) dex expands
+        from its own process env at startup ($<ID>_<FIELD>) -- reference it yourself, e.g.
+        config.clientID = "$GOOGLE_CLIENT_ID".
+    directory_sa is the keyless Workspace directory-reader service account dex's google connector impersonates for
+    group claims (domain-wide delegation) -- independently optional, only relevant to a google-typed connector. When
+    set, this module binds workloadIdentityUser on it for the cluster's dex KSA (sso.tf): the applying identity needs
+    the get/setIamPolicy delegation cloud-accounts grants the app's terraform-apply container on that SA. Requires the
+    DNS surface: the issuer and redirect URLs need the served domain. client_rotation holds the per-client rotation
+    counters (keys: flux-web, patchy-status; absent keys default to 1) -- bump one to mint a new client secret; the
+    raw dex-client-* container and any config document embedding the same value rewrite in one apply, so the pair
+    cannot drift (then restart dex: it reads client secrets from env at startup)."
   EOT
   type = object({
-    enabled         = optional(bool, false)
+    enabled = optional(bool, false)
+    connectors = optional(map(object({
+      type    = string
+      name    = optional(string)
+      config  = optional(map(any), {})
+      secrets = optional(set(string), ["client-id", "client-secret"])
+    })), {})
     directory_sa    = optional(string)
     client_rotation = optional(map(number), {})
   })
   nullable = false
   default  = {}
-
-  validation {
-    condition     = !var.sso.enabled || var.sso.directory_sa != null
-    error_message = "sso.directory_sa is required when sso is enabled (the Workspace directory-reader SA dex impersonates for group claims)."
-  }
 
   validation {
     condition     = var.sso.directory_sa == null || can(regex("^[a-z0-9-]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$", var.sso.directory_sa))
@@ -478,6 +491,25 @@ variable "sso" {
   validation {
     condition     = alltrue([for client in keys(var.sso.client_rotation) : contains(["flux-web", "patchy-status"], client)])
     error_message = "sso.client_rotation keys must be generated client ids: flux-web, patchy-status."
+  }
+
+  validation {
+    condition     = !var.sso.enabled || length(var.sso.connectors) > 0
+    error_message = "sso.enabled requires at least one entry in sso.connectors -- a dex deployment with no upstream connector is a footgun (nobody can authenticate)."
+  }
+
+  validation {
+    condition     = alltrue([for id in keys(var.sso.connectors) : can(regex("^[a-z0-9-]+$", id)) && id != "client"])
+    error_message = "sso.connectors keys must match ^[a-z0-9-]+$ and must not be \"client\" (reserved -- relying-party containers are already named dex-client-<id>)."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for c in values(var.sso.connectors) : [
+        for field in c.secrets : can(regex("^[a-z0-9-]+$", field))
+      ]
+    ]))
+    error_message = "sso.connectors[*].secrets entries must match ^[a-z0-9-]+$."
   }
 }
 

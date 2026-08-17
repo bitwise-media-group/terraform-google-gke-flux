@@ -91,6 +91,9 @@ run "sso_adds_dex_credentials" {
 
   variables {
     sso_enabled = true
+    sso_connectors = {
+      google = ["client-id", "client-secret", "admin-email"]
+    }
   }
 
   assert {
@@ -104,6 +107,49 @@ run "sso_adds_dex_credentials" {
   assert {
     condition     = google_secret_manager_secret_iam_member.sync["dex-google-client-secret"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/dex/sa/dex-secrets"
     error_message = "the dex credentials are read by the dex-secrets sync KSA in the dex namespace"
+  }
+}
+
+run "sso_connector_mechanism_is_generic" {
+  command = plan
+
+  variables {
+    sso_enabled = true
+    sso_connectors = {
+      okta = ["client-id", "client-secret"]
+    }
+  }
+
+  assert {
+    condition = alltrue([
+      for name in ["dex-okta-client-id", "dex-okta-client-secret"] :
+      contains(keys(google_secret_manager_secret.main), name)
+    ])
+    error_message = "a non-google connector id must create the same dex-<id>-<field> container shape as google"
+  }
+
+  assert {
+    condition     = !contains(keys(google_secret_manager_secret.main), "dex-google-client-id")
+    error_message = "a connector not declared in sso_connectors must create no container -- google is no longer automatic"
+  }
+
+  assert {
+    condition     = google_secret_manager_secret_iam_member.sync["dex-okta-client-secret"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/dex/sa/dex-secrets"
+    error_message = "every connector's credentials are read by the same dex-secrets sync KSA in the dex namespace"
+  }
+}
+
+run "sso_enabled_no_connectors_no_containers" {
+  command = plan
+
+  variables {
+    stack_components = []
+    sso_enabled      = true
+  }
+
+  assert {
+    condition     = length(google_secret_manager_secret.main) == 0
+    error_message = "sso_enabled alone (no sso_connectors) must create no dex credential containers -- no connector is created by default"
   }
 }
 

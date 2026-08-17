@@ -367,6 +367,11 @@ run "stack_contract_defaults" {
   }
 
   assert {
+    condition     = output.flux.cluster_vars.DEX_CONNECTORS == "[]"
+    error_message = "without sso, DEX_CONNECTORS must publish the empty JSON array (not the empty string -- the manifests unconditionally mustFromJson-parse it)"
+  }
+
+  assert {
     condition     = output.flux.cluster_vars.FLUX_SYNC_CHANNEL == "stable"
     error_message = "the default sync channel (stable) must reach the stack's flux component"
   }
@@ -571,6 +576,14 @@ run "stack_contract_elected" {
     sso = {
       enabled      = true
       directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+      connectors = {
+        google = {
+          type = "google"
+          config = {
+            clientID = "$GOOGLE_CLIENT_ID"
+          }
+        }
+      }
     }
   }
 
@@ -598,9 +611,34 @@ run "stack_contract_elected" {
     condition     = google_service_account_iam_member.dex_directory[0].member == "serviceAccount:x-patchy-app-ab12.svc.id.goog[dex/dex]"
     error_message = "the binding must pin this cluster's dex KSA in the classic annotation-based member form"
   }
+
+  assert {
+    condition     = [for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.id][0] == "google"
+    error_message = "DEX_CONNECTORS must publish the declared connector id"
+  }
+
+  assert {
+    condition     = [for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.name][0] == "google"
+    error_message = "an unset connector name must default to the connector id"
+  }
+
+  assert {
+    condition     = [for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.config.redirectURI][0] == "https://dex.patchy.bitwisemedia.co.uk/callback"
+    error_message = "a connector with no explicit redirectURI must get the shared callback endpoint injected"
+  }
+
+  assert {
+    condition     = [for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.config.clientID][0] == "$GOOGLE_CLIENT_ID"
+    error_message = "explicit connector config must pass through verbatim alongside the injected redirectURI"
+  }
+
+  assert {
+    condition     = toset([for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.secrets][0]) == toset(["client-id", "client-secret"])
+    error_message = "an unset connector secrets set must default to the client-id/client-secret pair"
+  }
 }
 
-run "sso_requires_directory_sa" {
+run "sso_requires_connectors" {
   command = plan
 
   variables {
@@ -616,12 +654,60 @@ run "sso_requires_directory_sa" {
   expect_failures = [var.sso]
 }
 
+run "sso_directory_sa_independently_optional" {
+  command = plan
+
+  variables {
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled = true
+      connectors = {
+        oidc = { type = "oidc" }
+      }
+    }
+  }
+
+  assert {
+    condition     = length(google_service_account_iam_member.dex_directory) == 0
+    error_message = "without directory_sa, no workloadIdentityUser binding may exist even though sso is enabled -- the connector doesn't need Google's directory delegation"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.DEX_DIRECTORY_SA == ""
+    error_message = "DEX_DIRECTORY_SA must publish empty when directory_sa is unset, regardless of sso.enabled"
+  }
+}
+
 run "sso_requires_domain" {
   command = plan
 
   variables {
     sso = {
       enabled      = true
+      directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+      connectors = {
+        google = { type = "google" }
+      }
+    }
+  }
+
+  expect_failures = [var.sso]
+}
+
+run "sso_enabled_requires_at_least_one_connector" {
+  command = plan
+
+  variables {
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled      = true
+      connectors   = {}
       directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
     }
   }
@@ -655,6 +741,9 @@ run "sso_client_pairs" {
     sso = {
       enabled      = true
       directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+      connectors = {
+        google = { type = "google" }
+      }
     }
   }
 
@@ -690,6 +779,9 @@ run "sso_follows_election" {
     sso = {
       enabled      = true
       directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
+      connectors = {
+        google = { type = "google" }
+      }
     }
     stack_components = ["patchy"]
   }

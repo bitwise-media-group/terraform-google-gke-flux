@@ -10,6 +10,12 @@
 # container into its consumer namespaces under the same SECRET_PREFIX this
 # module publishes.
 #
+# local.dex_connectors also lives here: it normalizes var.sso.connectors
+# (defaulting name, injecting a shared redirectURI) into the shape flux.tf
+# publishes as DEX_CONNECTORS and modules/secrets consumes for its
+# dex-<id>-<field> containers -- both fed from this one local so the
+# connector id/field naming can never drift between them.
+#
 # Two consumers need the value INLINE in a composed config document rather
 # than as a raw key:
 #   - flux-web-auth-config: the flux-operator Web Config API document
@@ -46,12 +52,28 @@ locals {
 
   # projects/<project>/serviceAccounts/<email>, the project recovered from
   # the email (shape enforced by the sso.directory_sa validation) so callers
-  # pass only the email.
-  dex_directory_sa_name = var.sso.enabled ? format(
+  # pass only the email. Only meaningful when a caller actually sets
+  # directory_sa (a google-typed connector); other connectors need no
+  # directory delegation.
+  dex_directory_sa_name = var.sso.enabled && var.sso.directory_sa != null ? format(
     "projects/%s/serviceAccounts/%s",
     split(".", split("@", var.sso.directory_sa)[1])[0],
     var.sso.directory_sa,
   ) : null
+
+  # The normalized connector list dex's config renders from (flux.tf) and
+  # modules/secrets creates credential containers from. Every dex connector
+  # shares the same callback endpoint; inject it as a default so callers
+  # don't have to repeat their own domain, but let an explicit
+  # config.redirectURI win.
+  dex_connectors = var.sso.enabled ? {
+    for id, c in var.sso.connectors : id => {
+      type    = c.type
+      name    = coalesce(c.name, id)
+      secrets = c.secrets
+      config  = merge({ redirectURI = "https://dex.${local.patchy_domain}/callback" }, c.config)
+    }
+  } : {}
 }
 
 # Dex impersonates the directory-reader SA through the classic
@@ -62,9 +84,11 @@ locals {
 # root, dex.tf); the apply identity may write exactly this SA's policy
 # through the get/setIamPolicy delegation granted there to the app's
 # terraform-apply container, so enabling sso on a new cluster needs no
-# cloud-accounts change.
+# cloud-accounts change. Only created when a caller actually sets
+# directory_sa -- a connector set that never uses google's group lookup
+# (an OIDC-only deployment, say) needs no directory delegation at all.
 resource "google_service_account_iam_member" "dex_directory" {
-  count = var.sso.enabled ? 1 : 0
+  count = var.sso.enabled && var.sso.directory_sa != null ? 1 : 0
 
   service_account_id = local.dex_directory_sa_name
   role               = "roles/iam.workloadIdentityUser"

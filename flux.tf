@@ -94,11 +94,20 @@ locals {
     # re-trigger the manifests' claude := default.
     AGENT_HARNESSES = coalesce(join(",", sort(var.patchy.harnesses)), "none")
 
-    # The Workspace directory-reader SA dex impersonates for group claims
-    # (typed through var.sso rather than a caller-supplied extra); the
+    # Arbitrary SSO federation: the non-secret half of each connector,
+    # JSON-encoded since a cluster var is a flat string. Defaults to "[]"
+    # rather than "" (unlike the rest of this map's empty-string convention)
+    # because the manifests unconditionally mustFromJson-parse it.
+    DEX_CONNECTORS = var.sso.enabled ? jsonencode([
+      for id, c in local.dex_connectors : merge({ id = id }, c)
+    ]) : "[]"
+
+    # The Workspace directory-reader SA dex's google connector impersonates
+    # for group claims (typed through var.sso rather than a caller-supplied
+    # extra; independently optional -- empty unless a caller sets it). The
     # manifests substitute it into the dex KSA's
     # iam.gke.io/gcp-service-account annotation.
-    DEX_DIRECTORY_SA = var.sso.enabled ? var.sso.directory_sa : ""
+    DEX_DIRECTORY_SA = var.sso.enabled && var.sso.directory_sa != null ? var.sso.directory_sa : ""
 
     # The claude runner's model provider for the patchy egress-broker.
     # Harness-scoped names (CLAUDE_*): the provider belongs to the claude

@@ -60,13 +60,13 @@ locals {
       patchy-copilot-token = "ns/patchy-agents/sa/patchy-secrets"
     } : {},
 
-    # The Google OAuth app dex's google connector signs users in with, plus
-    # the Workspace admin email the directory reads impersonate.
-    var.sso_enabled ? {
-      dex-google-client-id     = "ns/dex/sa/dex-secrets"
-      dex-google-client-secret = "ns/dex/sa/dex-secrets"
-      dex-google-admin-email   = "ns/dex/sa/dex-secrets"
-    } : {},
+    # Per-connector out-of-band credentials (arbitrary SSO federation): one
+    # container per (connector, field) pair declared in sso_connectors.
+    var.sso_enabled ? merge([
+      for id, fields in var.sso_connectors : {
+        for field in fields : "dex-${id}-${field}" => "ns/dex/sa/dex-secrets"
+      }
+    ]...) : {},
   )
 
   wi_prefix = "principal://iam.googleapis.com/projects/${data.google_project.main.number}/locations/global/workloadIdentityPools/${var.project}.svc.id.goog/subject"

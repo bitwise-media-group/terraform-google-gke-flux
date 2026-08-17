@@ -136,9 +136,15 @@ variable "patchy" {
 }
 
 variable "sso" {
-  description = "Platform SSO (module sso input): deploys dex and wires elected relying parties to it. directory_sa (the Workspace directory-reader SA) is required when enabled; client_rotation bumps mint new client secrets."
+  description = "Platform SSO (module sso input): deploys dex and wires elected relying parties to it. connectors declares the upstream identity provider(s) (arbitrary dex connectors, keyed by id); directory_sa (the Workspace directory-reader SA) is independently optional, only relevant to a google-typed connector. client_rotation bumps mint new client secrets."
   type = object({
-    enabled         = optional(bool, false)
+    enabled = optional(bool, false)
+    connectors = optional(map(object({
+      type    = string
+      name    = optional(string)
+      config  = optional(map(any), {})
+      secrets = optional(set(string), ["client-id", "client-secret"])
+    })), {})
     directory_sa    = optional(string)
     client_rotation = optional(map(number), {})
   })
