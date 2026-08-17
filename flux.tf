@@ -87,6 +87,13 @@ locals {
       "none",
     )
 
+    # The agent-harness election, gating the patchy chart's runners and the
+    # harness credential syncs (resourceset-secrets.yaml); modules/secrets
+    # creates the matching containers from the same value. Same reserved
+    # name "none" convention as STACK_COMPONENTS: an empty string would
+    # re-trigger the manifests' claude := default.
+    AGENT_HARNESSES = coalesce(join(",", sort(var.patchy.harnesses)), "none")
+
     # The Workspace directory-reader SA dex impersonates for group claims
     # (typed through var.sso rather than a caller-supplied extra); the
     # manifests substitute it into the dex KSA's

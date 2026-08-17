@@ -357,6 +357,11 @@ run "stack_contract_defaults" {
   }
 
   assert {
+    condition     = output.flux.cluster_vars.AGENT_HARNESSES == "claude"
+    error_message = "the default harness election must publish claude alone"
+  }
+
+  assert {
     condition     = output.flux.cluster_vars.DEX_DIRECTORY_SA == ""
     error_message = "without sso there is no directory SA to publish (empty-string convention)"
   }
@@ -435,6 +440,36 @@ run "stack_contract_kms_signing" {
   assert {
     condition     = contains(keys(google_kms_crypto_key_iam_member.kyverno_verifiers), "kyverno-reports-controller:viewer")
     error_message = "kyverno's controllers need viewer too (cosign lists versions behind a versionless gcpkms:// reference)"
+  }
+}
+
+run "agent_harness_election" {
+  command = plan
+
+  variables {
+    patchy = {
+      harnesses = ["copilot", "claude"]
+    }
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.AGENT_HARNESSES == "claude,copilot"
+    error_message = "the harness election must publish sorted and comma-joined, like STACK_COMPONENTS"
+  }
+}
+
+run "agent_harness_election_empty" {
+  command = plan
+
+  variables {
+    patchy = {
+      harnesses = []
+    }
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.AGENT_HARNESSES == "none"
+    error_message = "an empty election must publish the reserved name none -- an empty string would re-trigger the manifests' claude := default"
   }
 }
 

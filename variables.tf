@@ -333,8 +333,9 @@ variable "secret_sync" {
   description = <<-EOT
     Enable the Secret Manager CSI add-on plus GKE Integrated Secret Synchronization -- the SecretProviderClass and
     SecretSync CRDs flux-manifests' patchy component uses to materialise Secret Manager secrets as Kubernetes Secrets.
-    Requires GKE >= 1.33 and Workload Identity (always on here). The secretmanager.secretAccessor grants live beside the
-    secrets in cloud-accounts, not in this module.
+    Requires GKE >= 1.33 and Workload Identity (always on here). The secret containers and their
+    secretmanager.secretAccessor grants come from modules/secrets, instantiated in a durable root -- not this module,
+    whose lifecycle is the cluster's.
   EOT
   type        = bool
   nullable    = false
@@ -345,8 +346,8 @@ variable "secret_prefix" {
   description = <<-EOT
     Prefix for every Secret Manager container name the manifests stack syncs, published as the SECRET_PREFIX cluster var
     (resourceNames become <prefix><container>). Lets multiple clusters share one project with distinct secrets; the
-    containers and accessor grants in cloud-accounts must be created under the same prefix. Include the trailing
-    separator (e.g. 'patchy-x-'); empty keeps the unprefixed names.
+    modules/secrets instantiation must create the containers and accessor grants under the same prefix. Include the
+    trailing separator (e.g. 'patchy-x-'); empty keeps the unprefixed names.
   EOT
   type        = string
   default     = null
@@ -379,7 +380,10 @@ variable "stack_components" {
 
 variable "patchy" {
   description = <<-EOT
-    Patchy platform knobs. claude.provider configures the model provider the patchy egress-broker (the in-cluster proxy
+    Patchy platform knobs. harnesses elects the agent harnesses the cluster runs, published as the AGENT_HARNESSES
+    cluster var -- it gates the chart's per-harness runners and the harness credential syncs; create the matching
+    credential containers with modules/secrets (same value there). claude.provider configures the model provider the
+    patchy egress-broker (the in-cluster proxy
     terminating all claude-runner model traffic) forwards to, published as the CLAUDE_* cluster vars: CLAUDE_PROVIDER,
     CLAUDE_ANTHROPIC_AUTH, CLAUDE_BEDROCK_REGION, CLAUDE_BEDROCK_REGION_PREFIX, CLAUDE_VERTEX_REGION,
     CLAUDE_VERTEX_PROJECT_ID, CLAUDE_MODEL_MAP. name is anthropic or vertex — bedrock needs AWS ambient credentials the
@@ -389,6 +393,8 @@ variable "patchy" {
     translates canonical model ids to provider model ids, published sorted as canonical=providerID pairs.
   EOT
   type = object({
+    harnesses = optional(set(string), ["claude"])
+
     # Harness-scoped: the model provider belongs to the claude runner alone.
     # A future codex/copilot provider surface slots in as a sibling key
     # (patchy.codex.provider) without renaming anything here.
@@ -404,6 +410,13 @@ variable "patchy" {
   })
   default  = {}
   nullable = false
+
+  validation {
+    condition = alltrue([
+      for harness in var.patchy.harnesses : contains(["claude", "codex", "copilot"], harness)
+    ])
+    error_message = "patchy.harnesses entries must be harness short names: claude, codex, copilot."
+  }
 
   validation {
     condition     = contains(["anthropic", "vertex"], var.patchy.claude.provider.name)
