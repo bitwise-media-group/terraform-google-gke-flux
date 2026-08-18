@@ -61,10 +61,10 @@ locals {
     } : {},
 
     # Per-connector out-of-band credentials (arbitrary SSO federation): one
-    # container per (connector, field) pair declared in sso_connectors.
-    var.sso_enabled ? merge([
-      for id, fields in var.sso_connectors : {
-        for field in fields : "dex-${id}-${field}" => "ns/dex/sa/dex-secrets"
+    # container per (connector, field) pair declared in sso.connectors.
+    var.sso.enabled ? merge([
+      for id, connector in var.sso.connectors : {
+        for field in connector.secrets : "dex-${id}-${field}" => "ns/dex/sa/dex-secrets"
       }
     ]...) : {},
   )

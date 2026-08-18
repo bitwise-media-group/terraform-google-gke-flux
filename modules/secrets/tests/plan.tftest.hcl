@@ -90,9 +90,11 @@ run "sso_adds_dex_credentials" {
   command = plan
 
   variables {
-    sso_enabled = true
-    sso_connectors = {
-      google = ["client-id", "client-secret", "admin-email"]
+    sso = {
+      enabled = true
+      connectors = {
+        google = { secrets = ["client-id", "client-secret", "admin-email"] }
+      }
     }
   }
 
@@ -113,10 +115,15 @@ run "sso_adds_dex_credentials" {
 run "sso_connector_mechanism_is_generic" {
   command = plan
 
+  # The cluster module's full connector declarations pass verbatim: the
+  # attributes this module doesn't consume (type, name, config) are dropped
+  # by type conversion, and an unset secrets defaults to the client pair.
   variables {
-    sso_enabled = true
-    sso_connectors = {
-      okta = ["client-id", "client-secret"]
+    sso = {
+      enabled = true
+      connectors = {
+        okta = { type = "oidc", name = "Okta" }
+      }
     }
   }
 
@@ -130,7 +137,7 @@ run "sso_connector_mechanism_is_generic" {
 
   assert {
     condition     = !contains(keys(google_secret_manager_secret.main), "dex-google-client-id")
-    error_message = "a connector not declared in sso_connectors must create no container -- google is no longer automatic"
+    error_message = "a connector not declared in sso.connectors must create no container -- google is no longer automatic"
   }
 
   assert {
@@ -144,12 +151,14 @@ run "sso_enabled_no_connectors_no_containers" {
 
   variables {
     stack_components = []
-    sso_enabled      = true
+    sso = {
+      enabled = true
+    }
   }
 
   assert {
     condition     = length(google_secret_manager_secret.main) == 0
-    error_message = "sso_enabled alone (no sso_connectors) must create no dex credential containers -- no connector is created by default"
+    error_message = "sso.enabled alone (no connectors) must create no dex credential containers -- no connector is declared by default"
   }
 }
 

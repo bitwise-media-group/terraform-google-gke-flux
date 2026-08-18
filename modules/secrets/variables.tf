@@ -32,7 +32,7 @@ variable "stack_components" {
     The flux-manifests optional-tier components the cluster elects -- pass the cluster module's stack_components
     value. Only patchy carries out-of-band credentials today: electing it creates the GitHub App containers plus the
     elected harnesses' model credentials; flux-web is accepted for symmetric passing and creates nothing (dex rides
-    sso_enabled, mirroring the cluster module's sso toggle).
+    sso.enabled, mirroring the cluster module's sso toggle).
   EOT
   type        = set(string)
   nullable    = false
@@ -42,30 +42,40 @@ variable "stack_components" {
     condition = alltrue([
       for component in var.stack_components : contains(["flux-web", "patchy"], component)
     ])
-    error_message = "stack_components entries must be optional-tier short names: flux-web, patchy (dex rides sso_enabled)."
+    error_message = "stack_components entries must be optional-tier short names: flux-web, patchy (dex rides sso.enabled)."
   }
 }
 
-variable "sso_enabled" {
+variable "sso" {
   description = <<-EOT
-    Whether the cluster deploys dex -- pass the cluster module's sso.enabled. Gates the generic per-connector
-    containers driven by sso_connectors: on its own this creates nothing -- no connector is created by default.
+    Platform SSO election -- pass the cluster module's sso value verbatim (its attributes beyond enabled and
+    connectors[*].secrets are dropped by type conversion). enabled mirrors the cluster's dex toggle and gates the
+    per-connector containers; each connector's secrets names its out-of-band credential fields, creating one
+    dex-<id>-<field> Secret Manager container per (connector, field) pair -- populate versions out of band (an OAuth
+    client cannot be terraformed). On its own enabled creates nothing: no connector is declared by default.
   EOT
-  type        = bool
-  nullable    = false
-  default     = false
-}
+  type = object({
+    enabled = optional(bool, false)
+    connectors = optional(map(object({
+      secrets = optional(set(string), ["client-id", "client-secret"])
+    })), {})
+  })
+  nullable = false
+  default  = {}
 
-variable "sso_connectors" {
-  description = <<-EOT
-    Per-connector out-of-band credential fields -- pass the cluster module's sso.connectors, projected to id =>
-    secrets (e.g. { for id, c in var.sso.connectors : id => c.secrets }). Creates one dex-<id>-<field> Secret Manager
-    container per (connector, field) pair, gated on sso_enabled; populate versions out of band (an OAuth client
-    cannot be terraformed).
-  EOT
-  type        = map(set(string))
-  nullable    = false
-  default     = {}
+  validation {
+    condition     = alltrue([for id in keys(var.sso.connectors) : can(regex("^[a-z0-9-]+$", id)) && id != "client"])
+    error_message = "sso.connectors keys must match ^[a-z0-9-]+$ and must not be \"client\" (reserved -- relying-party containers are already named dex-client-<id>)."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for c in values(var.sso.connectors) : [
+        for field in c.secrets : can(regex("^[a-z0-9-]+$", field))
+      ]
+    ]))
+    error_message = "sso.connectors[*].secrets entries must match ^[a-z0-9-]+$."
+  }
 }
 
 variable "agent_harnesses" {

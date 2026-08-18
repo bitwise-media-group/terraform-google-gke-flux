@@ -11,7 +11,7 @@ Instantiate it from a **durable** root, not beside the cluster: the secret *vers
 re-entry. The grants can land before the cluster exists — a Workload Identity principal string depends only on the
 project number and pool name, so IAM stores the binding and it stays inert until the cluster and its KSAs arrive.
 
-Pass the same election values as the cluster module call (`stack_components`, `sso.enabled`, `patchy.harnesses`,
+Pass the same election values as the cluster module call (`stack_components`, `sso`, `patchy.harnesses`,
 `patchy.claude.provider.name`, `secret_prefix`); the module then creates exactly the containers that cluster shape
 syncs:
 
@@ -23,8 +23,7 @@ syncs:
 | `patchy-anthropic-token` | + `claude` harness on `anthropic` | `claude setup-token` OAuth token (or an API key, per the chart's `anthropicAuth`) |
 | `patchy-openai-token` | + `codex` harness | OpenAI platform API key |
 | `patchy-copilot-token` | + `copilot` harness | Fine-grained GitHub token with **no** repository permissions |
-| `dex-google-client-id` / `dex-google-client-secret` | `sso_enabled` | The console-created Google OAuth client dex signs users in with |
-| `dex-google-admin-email` | `sso_enabled` | The Workspace admin the directory reads impersonate |
+| `dex-<id>-<field>` | `sso.enabled`, per `connectors[*].secrets` | The connector's out-of-band credential fields (e.g. the console-created OAuth client dex signs users in with) |
 
 After the first apply, add a version to every container:
 
@@ -40,8 +39,12 @@ module "secrets" {
 
   project = "x-patchy-app-ab12"
 
-  # Mirror the cluster module call in the (separate, disposable) cluster root.
-  sso_enabled = true
+  # Mirror the cluster module call in the (separate, disposable) cluster
+  # root -- the cluster module's sso value can be passed verbatim.
+  sso = {
+    enabled    = true
+    connectors = { google = {} } # default secrets: client-id, client-secret
+  }
 }
 ```
 
@@ -80,9 +83,8 @@ No modules.
 | claude\_provider | The claude runner's model provider -- pass the cluster module's patchy.claude.provider.name value. Only anthropic<br/>needs a credential container (patchy-anthropic-token); a vertex cluster's egress broker authenticates with its<br/>cloud identity and gets none. | `string` | `"anthropic"` | no |
 | labels | Labels applied to every secret container. | `map(string)` | `{}` | no |
 | secret\_prefix | Prefix for every container name, matching the cluster module's secret\_prefix input (the manifests sync<br/><prefix><container>, so the two must move together). Lets multiple clusters share one project with distinct<br/>secrets -- each cluster then needs its own prefixed set of containers and fresh out-of-band versions. Include the<br/>trailing separator (e.g. 'patchy-x-'); null keeps the unprefixed names. | `string` | `null` | no |
-| sso\_connectors | Per-connector out-of-band credential fields -- pass the cluster module's sso.connectors, projected to id =><br/>secrets (e.g. { for id, c in var.sso.connectors : id => c.secrets }). Creates one dex-<id>-<field> Secret Manager<br/>container per (connector, field) pair, gated on sso\_enabled; populate versions out of band (an OAuth client<br/>cannot be terraformed). | `map(set(string))` | `{}` | no |
-| sso\_enabled | Whether the cluster deploys dex -- pass the cluster module's sso.enabled. Gates the generic per-connector<br/>containers driven by sso\_connectors: on its own this creates nothing -- no connector is created by default. | `bool` | `false` | no |
-| stack\_components | The flux-manifests optional-tier components the cluster elects -- pass the cluster module's stack\_components<br/>value. Only patchy carries out-of-band credentials today: electing it creates the GitHub App containers plus the<br/>elected harnesses' model credentials; flux-web is accepted for symmetric passing and creates nothing (dex rides<br/>sso\_enabled, mirroring the cluster module's sso toggle). | `set(string)` | <pre>[<br/>  "flux-web",<br/>  "patchy"<br/>]</pre> | no |
+| sso | Platform SSO election -- pass the cluster module's sso value verbatim (its attributes beyond enabled and<br/>connectors[*].secrets are dropped by type conversion). enabled mirrors the cluster's dex toggle and gates the<br/>per-connector containers; each connector's secrets names its out-of-band credential fields, creating one<br/>dex-<id>-<field> Secret Manager container per (connector, field) pair -- populate versions out of band (an OAuth<br/>client cannot be terraformed). On its own enabled creates nothing: no connector is declared by default. | <pre>object({<br/>    enabled = optional(bool, false)<br/>    connectors = optional(map(object({<br/>      secrets = optional(set(string), ["client-id", "client-secret"])<br/>    })), {})<br/>  })</pre> | `{}` | no |
+| stack\_components | The flux-manifests optional-tier components the cluster elects -- pass the cluster module's stack\_components<br/>value. Only patchy carries out-of-band credentials today: electing it creates the GitHub App containers plus the<br/>elected harnesses' model credentials; flux-web is accepted for symmetric passing and creates nothing (dex rides<br/>sso.enabled, mirroring the cluster module's sso toggle). | `set(string)` | <pre>[<br/>  "flux-web",<br/>  "patchy"<br/>]</pre> | no |
 
 ## Outputs
 
