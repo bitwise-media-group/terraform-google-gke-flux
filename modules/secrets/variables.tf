@@ -48,33 +48,37 @@ variable "stack_components" {
 
 variable "sso" {
   description = <<-EOT
-    Platform SSO election -- pass the cluster module's sso value verbatim (its attributes beyond enabled and
-    connectors[*].secrets are dropped by type conversion). enabled mirrors the cluster's dex toggle and gates the
-    per-connector containers; each connector's secrets names its out-of-band credential fields, creating one
-    dex-<id>-<field> Secret Manager container per (connector, field) pair -- populate versions out of band (an OAuth
-    client cannot be terraformed). On its own enabled creates nothing: no connector is declared by default.
+    Platform SSO election -- pass the cluster module's sso value verbatim (its attributes beyond enabled and the
+    connector's id/type/secrets are dropped by type conversion). enabled mirrors the cluster's dex toggle and gates
+    the connector containers; the connector's secrets names its out-of-band credential fields, creating one
+    dex-<id>-<field> Secret Manager container per field (id defaulting to type, matching the cluster module) --
+    populate versions out of band (an OAuth client cannot be terraformed). On its own enabled creates nothing: no
+    connector is declared by default.
   EOT
   type = object({
     enabled = optional(bool, false)
-    connectors = optional(map(object({
+    connector = optional(object({
+      id      = optional(string)
+      type    = string
       secrets = optional(set(string), ["client-id", "client-secret"])
-    })), {})
+    }))
   })
   nullable = false
   default  = {}
 
   validation {
-    condition     = alltrue([for id in keys(var.sso.connectors) : can(regex("^[a-z0-9-]+$", id)) && id != "client"])
-    error_message = "sso.connectors keys must match ^[a-z0-9-]+$ and must not be \"client\" (reserved -- relying-party containers are already named dex-client-<id>)."
+    condition = var.sso.connector == null || (
+      can(regex("^[a-z0-9-]+$", coalesce(var.sso.connector.id, var.sso.connector.type))) &&
+      coalesce(var.sso.connector.id, var.sso.connector.type) != "client"
+    )
+    error_message = "sso.connector.id (defaulting to type) must match ^[a-z0-9-]+$ and must not be \"client\" (reserved -- relying-party containers are already named dex-client-<id>)."
   }
 
   validation {
-    condition = alltrue(flatten([
-      for c in values(var.sso.connectors) : [
-        for field in c.secrets : can(regex("^[a-z0-9-]+$", field))
-      ]
-    ]))
-    error_message = "sso.connectors[*].secrets entries must match ^[a-z0-9-]+$."
+    condition = var.sso.connector == null || alltrue([
+      for field in var.sso.connector.secrets : can(regex("^[a-z0-9-]+$", field))
+    ])
+    error_message = "sso.connector.secrets entries must match ^[a-z0-9-]+$."
   }
 }
 

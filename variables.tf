@@ -443,13 +443,17 @@ variable "sso" {
   description = <<-EOT
     Platform SSO: deploys dex as the OIDC identity provider and wires every elected relying party to it -- generated
     client pairs (sso.tf), the DEX_CONNECTORS/DEX_DIRECTORY_SA cluster vars, and the human-facing HTTPRoutes. Upstream
-    identity is arbitrary: connectors is a map of dex connector declarations, keyed by a caller-chosen id (e.g.
-    "google", "okta") --
+    identity is arbitrary: connector declares the deployment's single upstream IdP -- which connector type a
+    deployment federates isn't known ahead of time, but it only ever federates one --
       - type: the dex connector type (oidc, saml, google, microsoft, github, ...), passed through verbatim, not
         validated against dex's own supported list.
+      - id: the dex connector id, also the naming stem for the credential containers (dex-<id>-<field>) and env vars;
+        defaults to type -- set it when the type alone reads poorly (e.g. id = "okta" for an oidc connector).
       - name: the display name shown on dex's login screen; defaults to the connector id when unset.
       - config: the connector's own config: block, passed through near-verbatim (issuer, clientID, scopes,
         claimMapping, adminEmail, ...) -- a redirectURI is injected by default (sso.tf) unless the caller sets one.
+        Values keep their native types (bools, lists, numbers) all the way into dex's rendered YAML, e.g.
+        fetchTransitiveGroupMembership = true stays a bool.
       - secrets: the out-of-band credential fields this connector needs (default ["client-id", "client-secret"]).
         Each field becomes a dex-<id>-<field> Secret Manager container (modules/secrets, created out of band -- an
         OAuth client cannot be terraformed) and a <ID>_<FIELD> env var (uppercased, dashes -> underscores) dex expands
@@ -459,21 +463,34 @@ variable "sso" {
     group claims (domain-wide delegation) -- independently optional, only relevant to a google-typed connector. When
     set, this module binds workloadIdentityUser on it for the cluster's dex KSA (sso.tf): the applying identity needs
     the get/setIamPolicy delegation cloud-accounts grants the app's terraform-apply container on that SA. Requires the
-    DNS surface: the issuer and redirect URLs need the served domain. client_rotation holds the per-client rotation
-    counters (keys: flux-web, patchy-status; absent keys default to 1) -- bump one to mint a new client secret; the
-    raw dex-client-* container and any config document embedding the same value rewrite in one apply, so the pair
-    cannot drift (then restart dex: it reads client secrets from env at startup)."
+    DNS surface: the issuer and redirect URLs need the served domain. clients holds the per-client knobs for the
+    generated relying-party pairs (keys: flux-web, patchy-status) -- today just version, the client secret's rotation
+    counter (absent clients sit at 1): bump it to mint a new client secret; the raw dex-client-* container and any
+    config document embedding the same value rewrite in one apply, so the pair cannot drift (then restart dex: it
+    reads client secrets from env at startup)."
   EOT
+  # config is bare any, NOT map(any): map(any) unifies the map's value
+  # types, so a mixed-type config ({clientID = "$...",
+  # fetchTransitiveGroupMembership = true}) silently collapses to
+  # map(string) and dex rejects the stringified bool at startup. Bare any
+  # inside a plain object faces no such unification, so each value keeps
+  # its native type all the way into the DEX_CONNECTORS JSON. That safety
+  # is also why connector is a single object rather than a map of them:
+  # map elements must share one concrete type, which would collapse
+  # heterogeneous configs to map(string) just as silently.
   type = object({
     enabled = optional(bool, false)
-    connectors = optional(map(object({
+    connector = optional(object({
+      id      = optional(string)
       type    = string
       name    = optional(string)
-      config  = optional(map(any), {})
+      config  = optional(any, {})
       secrets = optional(set(string), ["client-id", "client-secret"])
+    }))
+    directory_sa = optional(string)
+    clients = optional(map(object({
+      version = number
     })), {})
-    directory_sa    = optional(string)
-    client_rotation = optional(map(number), {})
   })
   nullable = false
   default  = {}
@@ -489,27 +506,28 @@ variable "sso" {
   }
 
   validation {
-    condition     = alltrue([for client in keys(var.sso.client_rotation) : contains(["flux-web", "patchy-status"], client)])
-    error_message = "sso.client_rotation keys must be generated client ids: flux-web, patchy-status."
+    condition     = alltrue([for client in keys(var.sso.clients) : contains(["flux-web", "patchy-status"], client)])
+    error_message = "sso.clients keys must be generated client ids: flux-web, patchy-status."
   }
 
   validation {
-    condition     = !var.sso.enabled || length(var.sso.connectors) > 0
-    error_message = "sso.enabled requires at least one entry in sso.connectors -- a dex deployment with no upstream connector is a footgun (nobody can authenticate)."
+    condition     = !var.sso.enabled || var.sso.connector != null
+    error_message = "sso.enabled requires sso.connector -- a dex deployment with no upstream connector is a footgun (nobody can authenticate)."
   }
 
   validation {
-    condition     = alltrue([for id in keys(var.sso.connectors) : can(regex("^[a-z0-9-]+$", id)) && id != "client"])
-    error_message = "sso.connectors keys must match ^[a-z0-9-]+$ and must not be \"client\" (reserved -- relying-party containers are already named dex-client-<id>)."
+    condition = var.sso.connector == null || (
+      can(regex("^[a-z0-9-]+$", coalesce(var.sso.connector.id, var.sso.connector.type))) &&
+      coalesce(var.sso.connector.id, var.sso.connector.type) != "client"
+    )
+    error_message = "sso.connector.id (defaulting to type) must match ^[a-z0-9-]+$ and must not be \"client\" (reserved -- relying-party containers are already named dex-client-<id>)."
   }
 
   validation {
-    condition = alltrue(flatten([
-      for c in values(var.sso.connectors) : [
-        for field in c.secrets : can(regex("^[a-z0-9-]+$", field))
-      ]
-    ]))
-    error_message = "sso.connectors[*].secrets entries must match ^[a-z0-9-]+$."
+    condition = var.sso.connector == null || alltrue([
+      for field in var.sso.connector.secrets : can(regex("^[a-z0-9-]+$", field))
+    ])
+    error_message = "sso.connector.secrets entries must match ^[a-z0-9-]+$."
   }
 }
 

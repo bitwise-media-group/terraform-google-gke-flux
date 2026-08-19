@@ -92,8 +92,9 @@ run "sso_adds_dex_credentials" {
   variables {
     sso = {
       enabled = true
-      connectors = {
-        google = { secrets = ["client-id", "client-secret", "admin-email"] }
+      connector = {
+        type    = "google"
+        secrets = ["client-id", "client-secret", "admin-email"]
       }
     }
   }
@@ -115,15 +116,14 @@ run "sso_adds_dex_credentials" {
 run "sso_connector_mechanism_is_generic" {
   command = plan
 
-  # The cluster module's full connector declarations pass verbatim: the
-  # attributes this module doesn't consume (type, name, config) are dropped
-  # by type conversion, and an unset secrets defaults to the client pair.
+  # The cluster module's full connector declaration passes verbatim: the
+  # attributes this module doesn't consume (name, config) are dropped by
+  # type conversion, an unset secrets defaults to the client pair, and an
+  # explicit id wins over the type default for the container stem.
   variables {
     sso = {
-      enabled = true
-      connectors = {
-        okta = { type = "oidc", name = "Okta" }
-      }
+      enabled   = true
+      connector = { id = "okta", type = "oidc", name = "Okta" }
     }
   }
 
@@ -137,7 +137,7 @@ run "sso_connector_mechanism_is_generic" {
 
   assert {
     condition     = !contains(keys(google_secret_manager_secret.main), "dex-google-client-id")
-    error_message = "a connector not declared in sso.connectors must create no container -- google is no longer automatic"
+    error_message = "a connector not declared in sso.connector must create no container -- google is no longer automatic"
   }
 
   assert {
@@ -146,7 +146,7 @@ run "sso_connector_mechanism_is_generic" {
   }
 }
 
-run "sso_enabled_no_connectors_no_containers" {
+run "sso_enabled_no_connector_no_containers" {
   command = plan
 
   variables {
@@ -158,7 +158,7 @@ run "sso_enabled_no_connectors_no_containers" {
 
   assert {
     condition     = length(google_secret_manager_secret.main) == 0
-    error_message = "sso.enabled alone (no connectors) must create no dex credential containers -- no connector is declared by default"
+    error_message = "sso.enabled alone (no connector) must create no dex credential containers -- no connector is declared by default"
   }
 }
 

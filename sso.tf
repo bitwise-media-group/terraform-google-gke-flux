@@ -10,11 +10,11 @@
 # container into its consumer namespaces under the same SECRET_PREFIX this
 # module publishes.
 #
-# local.dex_connectors also lives here: it normalizes var.sso.connectors
-# (defaulting name, injecting a shared redirectURI) into the shape flux.tf
-# publishes as DEX_CONNECTORS and modules/secrets consumes for its
-# dex-<id>-<field> containers -- both fed from this one local so the
-# connector id/field naming can never drift between them.
+# local.dex_connectors also lives here: it normalizes var.sso.connector
+# (defaulting id and name, injecting a shared redirectURI) into the shape
+# flux.tf publishes as DEX_CONNECTORS; modules/secrets applies the same
+# id-defaults-to-type rule for its dex-<id>-<field> containers, so the
+# naming cannot drift between them.
 #
 # Two consumers need the value INLINE in a composed config document rather
 # than as a raw key:
@@ -61,17 +61,21 @@ locals {
     var.sso.directory_sa,
   ) : null
 
-  # The normalized connector list dex's config renders from (flux.tf) and
-  # modules/secrets creates credential containers from. Every dex connector
-  # shares the same callback endpoint; inject it as a default so callers
-  # don't have to repeat their own domain, but let an explicit
-  # config.redirectURI win.
+  # The normalized connector dex's config renders from (flux.tf), kept as
+  # a one-entry map keyed by the effective id so the published
+  # DEX_CONNECTORS JSON array -- and the manifests ranging over it -- is
+  # unchanged from the map-shaped variable days. The connector shares the
+  # cluster's callback endpoint; inject it as a default so callers don't
+  # have to repeat their own domain, but let an explicit config.redirectURI
+  # win.
+  dex_connector_id = var.sso.connector != null ? coalesce(var.sso.connector.id, var.sso.connector.type) : null
+
   dex_connectors = var.sso.enabled ? {
-    for id, c in var.sso.connectors : id => {
-      type    = c.type
-      name    = coalesce(c.name, id)
-      secrets = c.secrets
-      config  = merge({ redirectURI = "https://dex.${local.patchy_domain}/callback" }, c.config)
+    (local.dex_connector_id) = {
+      type    = var.sso.connector.type
+      name    = coalesce(var.sso.connector.name, local.dex_connector_id)
+      secrets = var.sso.connector.secrets
+      config  = merge({ redirectURI = "https://dex.${local.patchy_domain}/callback" }, var.sso.connector.config)
     }
   } : {}
 }
@@ -97,7 +101,7 @@ resource "google_service_account_iam_member" "dex_directory" {
 
 # The generated client secrets. Ephemeral: re-opened every run, persisted
 # nowhere; the write-only versions below only consume a fresh result when
-# their rotation number (sso.client_rotation) moves.
+# their rotation number (sso.clients[*].version) moves.
 ephemeral "random_password" "dex_client" {
   for_each = local.dex_client_readers
 
@@ -125,7 +129,7 @@ resource "google_secret_manager_secret_version" "dex_client" {
 
   secret                 = each.value.id
   secret_data_wo         = ephemeral.random_password.dex_client[each.key].result
-  secret_data_wo_version = lookup(var.sso.client_rotation, each.key, 1)
+  secret_data_wo_version = try(var.sso.clients[each.key].version, 1)
 
   # Immediate destruction on delete/rotation -- these are regenerated
   # internal values; nothing to recover, and a lingering disabled version
@@ -198,7 +202,7 @@ resource "google_secret_manager_secret_version" "flux_web_auth_config" {
       }
     }
   })
-  secret_data_wo_version = lookup(var.sso.client_rotation, "flux-web", 1)
+  secret_data_wo_version = try(var.sso.clients["flux-web"].version, 1)
 }
 
 resource "google_secret_manager_secret_iam_member" "flux_web_auth_config_reader" {

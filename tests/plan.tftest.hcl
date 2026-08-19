@@ -576,12 +576,11 @@ run "stack_contract_elected" {
     sso = {
       enabled      = true
       directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
-      connectors = {
-        google = {
-          type = "google"
-          config = {
-            clientID = "$GOOGLE_CLIENT_ID"
-          }
+      connector = {
+        type = "google"
+        config = {
+          clientID                       = "$GOOGLE_CLIENT_ID"
+          fetchTransitiveGroupMembership = true
         }
       }
     }
@@ -614,7 +613,7 @@ run "stack_contract_elected" {
 
   assert {
     condition     = [for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.id][0] == "google"
-    error_message = "DEX_CONNECTORS must publish the declared connector id"
+    error_message = "an unset connector id must default to the connector type"
   }
 
   assert {
@@ -632,13 +631,23 @@ run "stack_contract_elected" {
     error_message = "explicit connector config must pass through verbatim alongside the injected redirectURI"
   }
 
+  # Regression guard for the map(any) footgun: config typed as map(any)
+  # unifies its value types and stringifies bools ("true"), which dex then
+  # rejects at startup (cannot unmarshal string into bool). Bare any on a
+  # single connector object faces no unification -- see the sso variable's
+  # type comment.
+  assert {
+    condition     = [for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.config.fetchTransitiveGroupMembership][0] == true
+    error_message = "connector config values must keep their native JSON types -- a bool must publish as true, not the string \"true\""
+  }
+
   assert {
     condition     = toset([for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.secrets][0]) == toset(["client-id", "client-secret"])
     error_message = "an unset connector secrets set must default to the client-id/client-secret pair"
   }
 }
 
-run "sso_requires_connectors" {
+run "sso_requires_connector" {
   command = plan
 
   variables {
@@ -664,8 +673,9 @@ run "sso_directory_sa_independently_optional" {
     }
     sso = {
       enabled = true
-      connectors = {
-        oidc = { type = "oidc" }
+      connector = {
+        id   = "okta"
+        type = "oidc"
       }
     }
   }
@@ -679,6 +689,16 @@ run "sso_directory_sa_independently_optional" {
     condition     = output.flux.cluster_vars.DEX_DIRECTORY_SA == ""
     error_message = "DEX_DIRECTORY_SA must publish empty when directory_sa is unset, regardless of sso.enabled"
   }
+
+  assert {
+    condition     = [for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.id][0] == "okta"
+    error_message = "an explicit connector id must win over the type default"
+  }
+
+  assert {
+    condition     = [for c in jsondecode(output.flux.cluster_vars.DEX_CONNECTORS) : c.name][0] == "okta"
+    error_message = "an unset connector name must default to the explicit id, not the type"
+  }
 }
 
 run "sso_requires_domain" {
@@ -688,40 +708,20 @@ run "sso_requires_domain" {
     sso = {
       enabled      = true
       directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
-      connectors = {
-        google = { type = "google" }
-      }
+      connector    = { type = "google" }
     }
   }
 
   expect_failures = [var.sso]
 }
 
-run "sso_enabled_requires_at_least_one_connector" {
-  command = plan
-
-  variables {
-    dns = {
-      zone_name  = "patchy-bitwisemedia-co-uk"
-      acme_email = "platform@bitwisemedia.co.uk"
-    }
-    sso = {
-      enabled      = true
-      connectors   = {}
-      directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
-    }
-  }
-
-  expect_failures = [var.sso]
-}
-
-run "sso_rotation_rejects_unknown_clients" {
+run "sso_clients_reject_unknown_ids" {
   command = plan
 
   variables {
     sso = {
-      client_rotation = {
-        dex = 2
+      clients = {
+        dex = { version = 2 }
       }
     }
   }
@@ -741,8 +741,9 @@ run "sso_client_pairs" {
     sso = {
       enabled      = true
       directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
-      connectors = {
-        google = { type = "google" }
+      connector    = { type = "google" }
+      clients = {
+        flux-web = { version = 3 }
       }
     }
   }
@@ -750,6 +751,16 @@ run "sso_client_pairs" {
   assert {
     condition     = google_secret_manager_secret.dex_client["flux-web"].secret_id == "patchy-x-dex-client-flux-web"
     error_message = "the generated client containers must carry the cluster's secret prefix"
+  }
+
+  assert {
+    condition     = google_secret_manager_secret_version.dex_client["flux-web"].secret_data_wo_version == 3 && google_secret_manager_secret_version.flux_web_auth_config[0].secret_data_wo_version == 3
+    error_message = "a client's version must drive both the raw container and the composed config document, so a bump rotates the pair together"
+  }
+
+  assert {
+    condition     = google_secret_manager_secret_version.dex_client["patchy-status"].secret_data_wo_version == 1
+    error_message = "a client absent from sso.clients must sit at version 1"
   }
 
   assert {
@@ -779,9 +790,7 @@ run "sso_follows_election" {
     sso = {
       enabled      = true
       directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
-      connectors = {
-        google = { type = "google" }
-      }
+      connector    = { type = "google" }
     }
     stack_components = ["patchy"]
   }

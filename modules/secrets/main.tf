@@ -60,13 +60,14 @@ locals {
       patchy-copilot-token = "ns/patchy-agents/sa/patchy-secrets"
     } : {},
 
-    # Per-connector out-of-band credentials (arbitrary SSO federation): one
-    # container per (connector, field) pair declared in sso.connectors.
-    var.sso.enabled ? merge([
-      for id, connector in var.sso.connectors : {
-        for field in connector.secrets : "dex-${id}-${field}" => "ns/dex/sa/dex-secrets"
-      }
-    ]...) : {},
+    # The connector's out-of-band credentials (arbitrary SSO federation):
+    # one container per field declared in sso.connector.secrets, named by
+    # the effective id (defaulting to type, matching the cluster module's
+    # sso.tf).
+    var.sso.enabled && var.sso.connector != null ? {
+      for field in var.sso.connector.secrets :
+      "dex-${coalesce(var.sso.connector.id, var.sso.connector.type)}-${field}" => "ns/dex/sa/dex-secrets"
+    } : {},
   )
 
   wi_prefix = "principal://iam.googleapis.com/projects/${data.google_project.main.number}/locations/global/workloadIdentityPools/${var.project}.svc.id.goog/subject"
