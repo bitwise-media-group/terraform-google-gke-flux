@@ -413,6 +413,11 @@ run "stack_contract_defaults" {
     condition     = !contains(keys(google_project_iam_member.workload), "patchy-egress-broker:roles/aiplatform.user")
     error_message = "the anthropic provider must grant the egress-broker no Vertex AI access"
   }
+
+  assert {
+    condition     = output.flux.cluster_vars.PATCHY_EVALUATION == "false"
+    error_message = "the evaluation controller must default off, published as the literal \"false\" (not the empty string -- it is a boolean toggle, and the manifests' := default matches)"
+  }
 }
 
 run "stack_contract_kms_signing" {
@@ -661,6 +666,43 @@ run "sso_requires_connector" {
   }
 
   expect_failures = [var.sso]
+}
+
+run "evaluation_controller_election" {
+  command = plan
+
+  variables {
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled = true
+      connector = {
+        type = "google"
+      }
+    }
+    patchy = {
+      evaluation = { enabled = true }
+    }
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.PATCHY_EVALUATION == "true"
+    error_message = "enabling the evaluation controller must publish PATCHY_EVALUATION as the literal \"true\""
+  }
+}
+
+run "evaluation_requires_sso" {
+  command = plan
+
+  variables {
+    patchy = {
+      evaluation = { enabled = true }
+    }
+  }
+
+  expect_failures = [var.patchy]
 }
 
 run "sso_directory_sa_independently_optional" {

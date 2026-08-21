@@ -391,6 +391,10 @@ variable "patchy" {
     provider authenticates (key or token). The vertex knobs default onto the cluster's own region/project; when the
     provider is vertex the broker's KSA also gets roles/aiplatform.user in the serving project (iam.tf). model_map
     translates canonical model ids to provider model ids, published sorted as canonical=providerID pairs.
+    evaluation.enabled deploys the evaluation controller -- the evolve-facing remote-evaluation API plus the runners
+    that execute submitted evaluation units -- published as the PATCHY_EVALUATION cluster var. It requires sso (the API
+    has no unauthenticated posture; evolve authenticates through dex as a public PKCE client) and at least one harness
+    (the chart refuses an evaluation controller with zero enabled runners).
   EOT
   type = object({
     harnesses = optional(set(string), ["claude"])
@@ -406,6 +410,10 @@ variable "patchy" {
         vertex_project_id = optional(string)              # defaults to the cluster project
         model_map         = optional(map(string), {})     # canonical id -> provider model id
       }), {})
+    }), {})
+
+    evaluation = optional(object({
+      enabled = optional(bool, false)
     }), {})
   })
   default  = {}
@@ -436,6 +444,16 @@ variable "patchy" {
   validation {
     condition     = var.patchy.claude.provider.name == "vertex" || var.patchy.claude.provider.vertex_project_id == null
     error_message = "patchy.claude.provider.vertex_project_id requires provider name vertex."
+  }
+
+  validation {
+    condition     = !var.patchy.evaluation.enabled || var.sso.enabled
+    error_message = "patchy.evaluation requires sso -- the evaluation API has no unauthenticated posture; evolve authenticates through dex."
+  }
+
+  validation {
+    condition     = !var.patchy.evaluation.enabled || length(var.patchy.harnesses) > 0
+    error_message = "patchy.evaluation requires at least one harness -- the chart refuses an evaluation controller with zero enabled runners."
   }
 }
 

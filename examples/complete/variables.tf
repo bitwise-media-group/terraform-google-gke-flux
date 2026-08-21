@@ -120,7 +120,7 @@ variable "stack_components" {
 }
 
 variable "patchy" {
-  description = "Patchy platform knobs (module patchy input): claude.provider picks the egress-broker's model provider, published as the CLAUDE_* cluster vars. Defaults to anthropic with token auth."
+  description = "Patchy platform knobs (module patchy input): claude.provider picks the egress-broker's model provider, published as the CLAUDE_* cluster vars; evaluation.enabled deploys the evaluation controller (PATCHY_EVALUATION), which requires sso. Defaults to anthropic with token auth and no evaluation controller."
   type = object({
     claude = optional(object({
       provider = optional(object({
@@ -130,6 +130,10 @@ variable "patchy" {
         vertex_project_id = optional(string)
         model_map         = optional(map(string), {})
       }), {})
+    }), {})
+
+    evaluation = optional(object({
+      enabled = optional(bool, false)
     }), {})
   })
   default = {}

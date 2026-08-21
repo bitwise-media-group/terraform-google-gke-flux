@@ -94,6 +94,12 @@ locals {
     # re-trigger the manifests' claude := default.
     AGENT_HARNESSES = coalesce(join(",", sort(var.patchy.harnesses)), "none")
 
+    # The evaluation-controller toggle. "true"/"false" rather than the
+    # empty-string convention: it is a boolean, not an optional value, and
+    # the manifests' := default ("false") covers a terraform predating the
+    # key -- so publishing the literal keeps the two sides symmetric.
+    PATCHY_EVALUATION = var.patchy.evaluation.enabled ? "true" : "false"
+
     # Arbitrary SSO federation: the non-secret half of each connector,
     # JSON-encoded since a cluster var is a flat string. Defaults to "[]"
     # rather than "" (unlike the rest of this map's empty-string convention)
