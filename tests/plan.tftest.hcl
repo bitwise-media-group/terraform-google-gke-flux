@@ -408,10 +408,10 @@ run "stack_contract_defaults" {
 
   assert {
     condition = alltrue([
-      for key in ["CLAUDE_BEDROCK_REGION", "CLAUDE_BEDROCK_REGION_PREFIX", "CLAUDE_VERTEX_REGION", "CLAUDE_VERTEX_PROJECT_ID", "CLAUDE_MODEL_MAP"] :
+      for key in ["CLAUDE_VERTEX_REGION", "CLAUDE_VERTEX_PROJECT_ID", "CLAUDE_MODEL_MAP"] :
       output.flux.cluster_vars[key] == ""
     ])
-    error_message = "every non-anthropic provider var must publish empty by default (empty-string convention; bedrock is always empty on GKE)"
+    error_message = "every non-anthropic provider var must publish empty by default (empty-string convention; the bedrock vars are never published -- the manifests' google tree never reads them)"
   }
 
   assert {

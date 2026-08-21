@@ -385,9 +385,9 @@ variable "patchy" {
     credential containers with modules/secrets (same value there). claude.provider configures the model provider the
     patchy egress-broker (the in-cluster proxy
     terminating all claude-runner model traffic) forwards to, published as the CLAUDE_* cluster vars: CLAUDE_PROVIDER,
-    CLAUDE_ANTHROPIC_AUTH, CLAUDE_BEDROCK_REGION, CLAUDE_BEDROCK_REGION_PREFIX, CLAUDE_VERTEX_REGION,
-    CLAUDE_VERTEX_PROJECT_ID, CLAUDE_MODEL_MAP. name is anthropic or vertex — bedrock needs AWS ambient credentials the
-    broker cannot get on GKE, and foundry is deliberately unsupported for now. anthropic_auth picks how the anthropic
+    CLAUDE_ANTHROPIC_AUTH, CLAUDE_VERTEX_REGION, CLAUDE_VERTEX_PROJECT_ID, CLAUDE_MODEL_MAP. name is anthropic or
+    vertex — bedrock needs AWS ambient credentials the broker cannot get on GKE (so its vars are never published),
+    and foundry is deliberately unsupported for now. anthropic_auth picks how the anthropic
     provider authenticates (key or token). The vertex knobs default onto the cluster's own region/project; when the
     provider is vertex the broker's KSA also gets roles/aiplatform.user in the serving project (iam.tf). model_map
     translates canonical model ids to provider model ids, published sorted as canonical=providerID pairs.
@@ -553,7 +553,8 @@ variable "flux" {
   description = <<-EOT
     Flux bootstrap knobs. Chart repositories, the distribution registry and the sync url default onto platform_registry;
     sync.ref picks the release channel (stable, staging, or edge for dev clusters tracking trunk -- pair edge with the
-    manifests_edge signing subject).
+    manifests_edge signing subject); sync.path selects the manifests' per-cloud entrypoint tree ("google" -- requires
+    flux-manifests >= 3.0.0, whose artifact ships the aws/google/common trees).
   EOT
   type = object({
     operator_chart = optional(object({
@@ -572,7 +573,7 @@ variable "flux" {
     sync = optional(object({
       url      = optional(string)
       ref      = optional(string, "stable")
-      path     = optional(string, "stack")
+      path     = optional(string, "google")
       interval = optional(string, "5m")
     }), {})
     kustomize_patches = optional(list(any), [])

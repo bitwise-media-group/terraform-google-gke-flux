@@ -127,18 +127,17 @@ locals {
     # runner alone — a future codex/copilot surface adds CODEX_* siblings —
     # and the knobs are provider-prefixed (VERTEX_REGION, not a generic
     # REGION), mirroring the broker's own PATCHY_VERTEX_* env names; clarity
-    # over brevity. The bedrock vars are always empty on GKE (the broker has
-    # no AWS ambient credentials here), the vertex vars default onto the
-    # cluster's own region/project, and the model map publishes as sorted
-    # comma-joined canonical=providerID pairs (empty-string convention
-    # throughout).
-    CLAUDE_PROVIDER              = local.claude_provider.name
-    CLAUDE_ANTHROPIC_AUTH        = local.claude_provider.anthropic_auth
-    CLAUDE_BEDROCK_REGION        = ""
-    CLAUDE_BEDROCK_REGION_PREFIX = ""
-    CLAUDE_VERTEX_REGION         = local.claude_provider.name == "vertex" ? coalesce(local.claude_provider.vertex_region, var.region) : ""
-    CLAUDE_VERTEX_PROJECT_ID     = local.claude_provider.name == "vertex" ? coalesce(local.claude_provider.vertex_project_id, var.project) : ""
-    CLAUDE_MODEL_MAP             = join(",", [for k in sort(keys(local.claude_provider.model_map)) : "${k}=${local.claude_provider.model_map[k]}"])
+    # over brevity. Only the google provider pair is published: the
+    # manifests' google tree never reads the bedrock vars, and the common
+    # patchy core carries := defaults for them. The vertex vars default onto
+    # the cluster's own region/project, and the model map publishes as
+    # sorted comma-joined canonical=providerID pairs (empty-string
+    # convention throughout).
+    CLAUDE_PROVIDER          = local.claude_provider.name
+    CLAUDE_ANTHROPIC_AUTH    = local.claude_provider.anthropic_auth
+    CLAUDE_VERTEX_REGION     = local.claude_provider.name == "vertex" ? coalesce(local.claude_provider.vertex_region, var.region) : ""
+    CLAUDE_VERTEX_PROJECT_ID = local.claude_provider.name == "vertex" ? coalesce(local.claude_provider.vertex_project_id, var.project) : ""
+    CLAUDE_MODEL_MAP         = join(",", [for k in sort(keys(local.claude_provider.model_map)) : "${k}=${local.claude_provider.model_map[k]}"])
     },
     # The GKE RBAC subject groups, one var per role key in rbac.groups
     # (RBAC_GROUP_VIEWERS, RBAC_GROUP_DEVELOPERS, RBAC_GROUP_DEVOPS,
