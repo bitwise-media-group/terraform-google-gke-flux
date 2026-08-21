@@ -387,6 +387,11 @@ run "stack_contract_defaults" {
   }
 
   assert {
+    condition     = output.flux.cluster_vars.COSIGN_PUBLIC_KEY == ""
+    error_message = "keyless mode distributes no key material (empty-string convention)"
+  }
+
+  assert {
     condition     = length(google_kms_crypto_key_iam_member.kyverno_verifiers) == 0
     error_message = "keyless mode must grant kyverno no KMS access"
   }
@@ -440,6 +445,14 @@ run "stack_contract_kms_signing" {
       output.flux.cluster_vars[key] == ""
     ])
     error_message = "KMS mode must blank every keyless identity var — the manifests select the mode by guarding on empties"
+  }
+
+  # The manifests render each verified namespace's cosign-pub Secret from
+  # this var, so it must carry the signing key's public half base64-encoded
+  # (Secret data format).
+  assert {
+    condition     = base64decode(output.flux.cluster_vars.COSIGN_PUBLIC_KEY) == "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\n-----END PUBLIC KEY-----\n"
+    error_message = "KMS mode must publish the signing key's public half as base64 PEM in COSIGN_PUBLIC_KEY"
   }
 
   assert {

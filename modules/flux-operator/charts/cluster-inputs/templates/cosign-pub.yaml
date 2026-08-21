@@ -1,8 +1,9 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 {{- /* The signing key's public half, for keyed cosign verification: the
-       flux-system OCIRepository verify patch references this Secret, and the
-       stack syncs it wherever else artifacts are verified. Absent entirely in
+       flux-system OCIRepository verify patch references this Secret; the
+       stack renders its own per-namespace copies from the COSIGN_PUBLIC_KEY
+       cluster var wherever else artifacts are verified. Absent entirely in
        keyless mode. */}}
 {{- if .Values.cosignPublicKey }}
 apiVersion: v1

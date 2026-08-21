@@ -52,6 +52,13 @@ locals {
     SIGNED_IDENTITY_IMAGES  = local.signing_kms ? "" : var.signed_identity.containers_subject
     SIGNED_IDENTITY_KMS_KEY = local.signing_kms ? var.signed_identity.kms_key_name : ""
 
+    # KMS mode also publishes the signing key's public half (base64 PEM,
+    # dropping straight into Secret data): the manifests render it into each
+    # verified component namespace as a cosign-pub Secret, so the chart
+    # OCIRepositories' secretRef verify resolves without any cross-namespace
+    # secret machinery. Public material — safe in a ConfigMap.
+    COSIGN_PUBLIC_KEY = local.signing_kms ? base64encode(data.google_kms_crypto_key_latest_version.signing["true"].public_key[0].pem) : ""
+
     # The stack's flux component (flux managing flux) re-renders the
     # FluxInstance this module bootstraps: it needs the manifests-artifact
     # signing subject for the sync verify patch, and the release channel for
