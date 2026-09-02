@@ -21,15 +21,25 @@ variable "project" {
   nullable    = true
 }
 
-variable "region" {
-  description = "Region for the (regional) cluster, e.g. us-central1."
+variable "location" {
+  description = <<-EOT
+    Region for a regional cluster (e.g. us-central1) or zone for a zonal one (e.g. us-central1-a). The GKE free tier
+    covers the management fee of one zonal (or Autopilot) cluster per billing account -- a fee regional clusters
+    always pay. Location is immutable: moving between regional and zonal replaces the cluster.
+  EOT
   type        = string
   nullable    = false
+
+  validation {
+    condition     = can(regex("^[a-z]+-[a-z]+[0-9](-[a-z])?$", var.location))
+    error_message = "location must be a region (e.g. us-central1) or a zone (e.g. us-central1-a)."
+  }
 }
 
 variable "zones" {
   description = <<-EOT
-    Optional zone narrowing for node locations (cost control); null runs nodes in every zone of the region.
+    Optional zone narrowing for node locations (cost control); null runs nodes in every zone of the region (regional
+    clusters) or in the control-plane zone alone (zonal clusters).
   EOT
   type        = set(string)
   nullable    = false

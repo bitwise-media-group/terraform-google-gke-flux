@@ -41,9 +41,9 @@ mock_provider "google-beta" {}
 mock_provider "helm" {}
 
 variables {
-  name    = "patchy-x"
-  project = "x-patchy-app-ab12"
-  region  = "us-central1"
+  name     = "patchy-x"
+  project  = "x-patchy-app-ab12"
+  location = "us-central1"
 
   network = {
     network             = "projects/x-vpc-host-cd34/global/networks/x-vpc-shared"
@@ -126,6 +126,32 @@ run "cluster_shape" {
   assert {
     condition     = google_container_cluster.main.secret_manager_config[0].rotation_config[0].rotation_interval == "120s" && google_container_cluster.main.secret_sync_config[0].rotation_config[0].rotation_interval == "120s"
     error_message = "the rotation interval is pinned at 120s so the refresh cadence survives provider default drift"
+  }
+}
+
+# location accepts a zone as well as a region: a zone builds a zonal cluster
+# (management fee covered by the GKE free tier for one per billing account)
+# while the consumers that need a true region still see the enclosing one.
+run "zonal_location" {
+  command = plan
+
+  variables {
+    location = "us-central1-a"
+  }
+
+  assert {
+    condition     = google_container_cluster.main.location == "us-central1-a"
+    error_message = "a zone-shaped location must build a zonal cluster"
+  }
+
+  assert {
+    condition     = google_container_node_pool.system.location == "us-central1-a"
+    error_message = "the system pool must follow the cluster's location"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.GCP_REGION == "us-central1"
+    error_message = "GCP_REGION must be the zone's enclosing region, never the zone itself"
   }
 }
 

@@ -37,7 +37,10 @@ module "cluster" {
 
   name    = var.name
   project = var.project
-  region  = var.region
+
+  # A region here builds a regional cluster; pass a zone (e.g. us-central1-a)
+  # for a zonal one instead.
+  location = var.region
 
   # Names from cloud-accounts (environments/google/patchy → modules/app-env):
   # the subnet lives in the HOST project; secondary ranges are referenced by

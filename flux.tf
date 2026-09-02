@@ -34,7 +34,7 @@ locals {
     CLUSTER_NAME       = var.name
     GCP_PROJECT        = var.project
     GCP_PROJECT_NUMBER = data.google_project.cluster.number
-    GCP_REGION         = var.region
+    GCP_REGION         = local.region
 
     PLATFORM_REGISTRY  = var.platform_registry
     CONTAINER_REGISTRY = local.container_registry
@@ -135,7 +135,7 @@ locals {
     # convention throughout).
     CLAUDE_PROVIDER          = local.claude_provider.name
     CLAUDE_ANTHROPIC_AUTH    = local.claude_provider.anthropic_auth
-    CLAUDE_VERTEX_REGION     = local.claude_provider.name == "vertex" ? coalesce(local.claude_provider.vertex_region, var.region) : ""
+    CLAUDE_VERTEX_REGION     = local.claude_provider.name == "vertex" ? coalesce(local.claude_provider.vertex_region, local.region) : ""
     CLAUDE_VERTEX_PROJECT_ID = local.claude_provider.name == "vertex" ? coalesce(local.claude_provider.vertex_project_id, var.project) : ""
     CLAUDE_MODEL_MAP         = join(",", [for k in sort(keys(local.claude_provider.model_map)) : "${k}=${local.claude_provider.model_map[k]}"])
     },

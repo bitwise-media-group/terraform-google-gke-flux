@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: MIT
 
 # A minimum-viable GKE Standard cluster for the flux-operator platform:
-# regional, VPC-native on a shared-VPC subnet, Dataplane V2 (built-in Cilium),
-# Workload Identity, private nodes, a small always-on system node pool for
+# regional or zonal per location, VPC-native on a shared-VPC subnet,
+# Dataplane V2 (built-in Cilium), Workload Identity, private nodes, a small
+# always-on system node pool for
 # platform controllers (label role=system) and node auto-provisioning for
 # everything else. GKE manages what EKS delegated to addons (DNS, metrics, CSI,
 # metadata server), so there is no addon surface here.
@@ -14,6 +15,12 @@ data "google_project" "cluster" {
 
 locals {
   workload_identity_pool = "${var.project}.svc.id.goog"
+
+  # location accepts a region or a zone; the consumers that need a true
+  # region (GCP_REGION, the Vertex default) get one either way. The provider
+  # owns the zone -> region rule; region_from_zone rejects a non-zone, so
+  # try() passes an already-region location through untouched.
+  region = try(provider::google::region_from_zone(var.location), var.location)
 
   # Direct Workload Identity Federation for GKE: in-cluster workloads are
   # granted IAM roles as federated principals — no GSAs, no
@@ -71,7 +78,7 @@ resource "google_container_cluster" "main" {
 
   project  = var.project
   name     = var.name
-  location = var.region
+  location = var.location
 
   # An empty set must land as unset (null): explicitly-empty node_locations
   # fights the API-populated zone list on regional clusters, and the
@@ -263,7 +270,7 @@ resource "google_container_cluster" "main" {
 resource "google_container_node_pool" "system" {
   project  = var.project
   cluster  = google_container_cluster.main.name
-  location = var.region
+  location = google_container_cluster.main.location
   name     = "system"
 
   initial_node_count = var.system_node_pool.initial_size

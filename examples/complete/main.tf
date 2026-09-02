@@ -35,7 +35,10 @@ module "cluster" {
 
   name    = var.name
   project = var.project
-  region  = var.region
+
+  # A region here builds a regional cluster; pass a zone (e.g. us-central1-a)
+  # for a zonal one instead.
+  location = var.region
 
   network = {
     network             = "projects/${var.host_project_id}/global/networks/${var.network_name}"
