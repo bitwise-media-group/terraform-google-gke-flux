@@ -81,14 +81,14 @@ when its delivery queue is full, which Pub/Sub correctly treats as backpressure.
 | Name | Version |
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
-| google | >= 7.0, < 8.0 |
+| google | >= 7.0, < 8.2 |
 | google-beta | >= 7.0, < 8.0 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| google | >= 7.0, < 8.0 |
+| google | >= 7.0, < 8.2 |
 | google-beta | >= 7.0, < 8.0 |
 
 ## Modules
