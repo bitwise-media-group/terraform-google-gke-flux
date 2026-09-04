@@ -17,14 +17,14 @@ The local `charts/cluster-inputs` chart delivers the terraform ↔ flux-manifest
 | Name | Version |
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
-| google | >= 7.0, < 8.0 |
+| google | >= 7.0, < 8.2 |
 | helm | >= 3.0, < 4 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| google | >= 7.0, < 8.0 |
+| google | >= 7.0, < 8.2 |
 | helm | >= 3.0, < 4 |
 
 ## Modules

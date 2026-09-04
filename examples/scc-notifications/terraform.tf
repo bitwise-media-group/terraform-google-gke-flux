@@ -7,7 +7,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = ">= 7.0, < 8.0"
+      version = ">= 7.0, < 8.2"
     }
     # google_project_service_identity, which the module uses to fetch the
     # Pub/Sub service agent, has not been promoted to GA.

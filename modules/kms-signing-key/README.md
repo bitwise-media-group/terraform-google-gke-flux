@@ -27,13 +27,13 @@ key ring itself is permanent either way, as Cloud KMS never deletes rings.
 | Name | Version |
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
-| google | >= 7.0, < 8.0 |
+| google | >= 7.0, < 8.2 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| google | >= 7.0, < 8.0 |
+| google | >= 7.0, < 8.2 |
 
 ## Modules
 
