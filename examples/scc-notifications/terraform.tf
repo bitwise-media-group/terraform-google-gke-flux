@@ -13,7 +13,7 @@ terraform {
     # Pub/Sub service agent, has not been promoted to GA.
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = ">= 7.0, < 8.0"
+      version = ">= 7.0, < 8.2"
     }
   }
 }

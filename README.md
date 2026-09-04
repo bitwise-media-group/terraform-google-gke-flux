@@ -136,7 +136,7 @@ tool; `mise trust --all` once per clone.
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
 | google | >= 7.0, < 8.0 |
-| google-beta | >= 7.33, < 8.0 |
+| google-beta | >= 7.33, < 8.2 |
 | helm | ~> 3.0 |
 | random | >= 3.7, < 4.0 |
 
@@ -145,7 +145,7 @@ tool; `mise trust --all` once per clone.
 | Name | Version |
 | ---- | ------- |
 | google | >= 7.0, < 8.0 |
-| google-beta | >= 7.33, < 8.0 |
+| google-beta | >= 7.33, < 8.2 |
 
 ## Modules
 
