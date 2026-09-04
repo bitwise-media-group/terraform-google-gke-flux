@@ -15,7 +15,7 @@ terraform {
     # secret_sync_config to the cluster resource.
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = ">= 7.33, < 8.0"
+      version = ">= 7.33, < 8.2"
     }
     helm = {
       source  = "hashicorp/helm"
