@@ -2,20 +2,20 @@
 # SPDX-License-Identifier: MIT
 #
 # terraform-google-gke-flux consumes the shared toolchain
-# (bitwise-media-group/toolchain) as the .mise/ submodule: pinned tools
-# (terraform, tflint, terraform-docs, addlicense, prettier, ...) and the
-# terraform task archetype come from there, and the Makefile is a thin
-# forwarder (.mise/mise.mk). Repo-local tasks live in tasks.toml (see
-# [task_config] below).
-
-[vars]
-# This is a published module repo, not a deployment root: there is no backend,
-# no state, and no secrets to inject, so terraform is invoked directly instead
-# of through the dotty env wrapper.
-tf_run = ""
+# (bitwise-media-group/toolchain) as the .mise/ submodule: mise loads its
+# config.toml natively as .mise/config.toml (pinned tools -- terraform,
+# tflint, terraform-docs, prettier, ... -- and the [vars] knob defaults), and
+# this file selects the task files: common/ plus the terraform archetype. The
+# Makefile is a thin forwarder (.mise/archetypes/terraform/include.mk). There
+# is nothing to pin here: this repo's Renovate workflow bumps the submodule
+# tag, which carries every tool pin and its mise.lock.
 
 [task_config]
 # Repo-local tasks live in tasks.toml, included AFTER the archetype so its
-# same-named tasks (lint, docs, ci, pr) replace the archetype's single-module
-# definitions with fan-out over the root, modules/* and examples/*.
-includes = [".mise/tasks/terraform.toml", "tasks.toml"]
+# lint/ci/pr rollups (examples/* + terraform-docs checks, the `test` fan-out)
+# replace the archetype's.
+includes = [
+  ".mise/common/tasks.toml",
+  ".mise/archetypes/terraform/tasks.toml",
+  "tasks.toml",
+]

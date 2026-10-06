@@ -1,26 +1,59 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 #
-# Repo-local tasks. The toolchain's terraform archetype is single-module (it
-# targets {{cwd}} for deployment roots like cloud-accounts environments); this
-# repo is a published module with sub-modules and examples, so the check-mode
-# tasks fan out over every configuration and the aggregates are redefined here
-# (an included file wins over the archetype on name collisions).
+# Repo-local tasks, included after the toolchain's terraform archetype. The
+# archetype covers fmt, docs and a {{cwd}}-scoped lint (validate + tflint of
+# the root module, which reaches the local modules/* through its module
+# calls). This repo is a published module with examples, so it adds:
+#   - lint: the archetype's rollup with license-check first (as common's
+#     lint does) plus the examples/* validate + tflint pass and the
+#     terraform-docs --output-check;
+#   - test: a fan-out over every configuration with a plan-time test suite,
+#     run by the ci/pr rollups.
+# Task merging is whole-task replacement, so each redefinition repeats the
+# archetype's rollup and appends this repo's steps.
 
-# Machine-readable listings: the single source of truth for the fan-out loops
-# in validate and test below. Hidden helpers.
-
-# Every terraform configuration in the repo.
-[dirs]
+# Every examples/* configuration: backend-less init, validate and tflint,
+# attempted even when one fails (failures are collected and reported at the
+# end). The examples carry no state or secrets, so terraform runs directly
+# rather than through tf-run.sh.
+[tf-lint-examples]
 hide = true
-quiet = true
+dir = "{{config_root}}"
 run = """
-for dir in . modules/* examples/*; do
-  if [ -d "$dir" ]; then echo "$dir"; fi
+failed=""
+for dir in examples/*; do
+  [ -d "$dir" ] || continue
+  echo "==> $dir"
+  { {{vars.terraform_binary}} -chdir="$dir" init -backend=false -input=false > /dev/null \
+      && {{vars.terraform_binary}} -chdir="$dir" validate \
+      && tflint --chdir="$dir" --config "{{config_root}}/.tflint.hcl"; } || failed="$failed $dir"
 done
+[ -z "$failed" ] || { echo "FAIL:$failed"; exit 1; }
 """
 
+# Fails when a README's generated terraform-docs block is stale (driven by
+# .terraform-docs.yml: the root README and each modules/* README).
+[tf-docs-check]
+hide = true
+dir = "{{config_root}}"
+run = "terraform-docs --output-check ."
+
+[lint]
+description = "license + terraform validate/tflint (root and examples/*) + terraform-docs check + prose, container, shell and workflow checks"
+run = [
+  { task = "license-check" },
+  { task = "tf-lint" },
+  { task = "lint-containers" },
+  { task = "lint-shell" },
+  { task = "lint-workflows" },
+  { task = "lint-prose" },
+  { task = "tf-lint-examples" },
+  { task = "tf-docs-check" },
+]
+
 # Configurations with a terraform test suite (plan-time, mocked providers).
+# Hidden helper: the single source of truth for the test loop below.
 [test-dirs]
 hide = true
 quiet = true
@@ -34,25 +67,6 @@ done
 # Every directory is attempted even when one fails; results are summarized at
 # the end. No set -e: per-directory failures are collected, and the final test
 # provides the exit status.
-[validate]
-description = "terraform validate for every configuration"
-run = """
-failed=""
-for dir in $(mise run dirs); do
-  echo "==> $dir"
-  { terraform -chdir="$dir" init -backend=false -input=false > /dev/null \
-      && terraform -chdir="$dir" validate; } || failed="$failed $dir"
-done
-echo "==> summary"
-for dir in $(mise run dirs); do
-  case " $failed " in
-    *" $dir "*) echo "  FAIL  $dir" ;;
-    *) echo "  ok    $dir" ;;
-  esac
-done
-[ -z "$failed" ]
-"""
-
 [test]
 description = "terraform test for every configuration with a test suite"
 run = """
@@ -72,39 +86,10 @@ done
 [ -z "$failed" ]
 """
 
-# tflint --recursive covers the root, modules/* and examples/* in one pass
-# (unlike the archetype's {{cwd}}-scoped tf-lint); terraform-docs --output-check
-# fails when a README's generated block is stale.
-[lint]
-description = "validate fan-out, tflint, terraform-docs check, license + prose lint"
-run = [
-  { task = "validate" },
-  """
-set -eu
-tflint --init > /dev/null
-tflint --recursive --config "{{config_root}}/.tflint.hcl"
-terraform-docs --output-check .
-""",
-  { task = "license-check" },
-  { task = "lint-shell" },
-  { task = "lint-prose" }
-]
-
-# Driven by .terraform-docs.yml (root README + each modules/* README).
-[docs]
-description = "regenerate the terraform-docs blocks in the root and modules/* READMEs"
-run = "terraform-docs ."
-
 [ci]
 description = "the checks the reusable CI workflow runs"
-run = [{ task = "lint" }, { task = "test" }]
+run = [{ task = "lint" }, { task = "docs" }, { task = "test" }]
 
 [pr]
 description = "full local gate before a pull request"
-run = [
-  { task = "fmt" },
-  { task = "docs" },
-  { task = "lint" },
-  { task = "test" },
-  { task = "commit" }
-]
+run = [{ task = "fmt" }, { task = "lint" }, { task = "docs" }, { task = "test" }]

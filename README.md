@@ -121,8 +121,8 @@ annotation-based flow, since dex must impersonate the SA rather than hold a gran
 
 ## Development
 
-`make help` lists tasks (`fmt`, `lint`, `validate`, `test`, `docs`, `pr`). The toolchain submodule (`.mise/`) pins every
-tool; `mise trust --all` once per clone.
+`make help` lists tasks (`fmt`, `lint`, `test`, `docs`, `pr`). The toolchain submodule (`.mise/`) pins every tool;
+`mise trust --all` once per clone.
 
 [flux-operator]: https://github.com/controlplaneio-fluxcd/flux-operator
 [patchy]: https://github.com/bitwise-media-group/patchy

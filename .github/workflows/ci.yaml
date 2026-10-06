@@ -1,14 +1,15 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 
-# Continuous integration — thin caller for the org's reusable ci workflow (v5+:
-# mise-task aware). It discovers the canonical tasks this repo defines and runs
-# `make lint` / `test` as one parallel job each. `make lint` carries the whole
-# check-mode surface — terraform validate fan-out (root, modules/*, examples/*),
-# tflint --recursive, terraform-docs --output-check, addlicense, markdownlint,
-# prettier --check — and `make test` runs `terraform test` (plan-time, mocked
-# providers) for every configuration with a test suite. All pinned tools come
-# from the toolchain submodule at .mise/.
+# Continuous integration — thin caller for the org's reusable ci workflow. It
+# discovers the canonical tasks this repo defines and runs `mise run lint` /
+# `mise run test` as one parallel job each. `lint` carries the whole
+# check-mode surface — addlicense, terraform validate + tflint (root, the
+# modules/* it calls, and examples/*), terraform-docs --output-check,
+# markdownlint, prettier --check, shell and workflow lint (actionlint + zizmor)
+# — and `test` runs `terraform test` (plan-time, mocked providers) for every
+# configuration with a test suite. All pinned tools come from the toolchain
+# submodule at .mise/.
 #
 # The reusable workflow is pinned to a full commit SHA (tag in the comment) so a
 # moved tag can never change what runs; Renovate keeps the pin fresh.
