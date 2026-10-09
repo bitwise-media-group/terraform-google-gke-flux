@@ -835,12 +835,12 @@ run "sso_client_pairs" {
   }
 
   assert {
-    condition     = google_secret_manager_secret_version.dex_client["flux-web"].secret_data_wo_version == 3 && google_secret_manager_secret_version.flux_web_auth_config[0].secret_data_wo_version == 3
+    condition     = tostring(google_secret_manager_secret_version.dex_client["flux-web"].secret_data_wo_version) == "3" && tostring(google_secret_manager_secret_version.flux_web_auth_config[0].secret_data_wo_version) == "3"
     error_message = "a client's version must drive both the raw container and the composed config document, so a bump rotates the pair together"
   }
 
   assert {
-    condition     = google_secret_manager_secret_version.dex_client["patchy-status"].secret_data_wo_version == 1
+    condition     = tostring(google_secret_manager_secret_version.dex_client["patchy-status"].secret_data_wo_version) == "1"
     error_message = "a client absent from sso.clients must sit at version 1"
   }
 
