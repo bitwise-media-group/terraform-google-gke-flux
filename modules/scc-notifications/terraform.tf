@@ -20,7 +20,7 @@ terraform {
     # land there.
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = ">= 7.0, < 8.6"
+      version = ">= 7.0, < 8.7"
     }
   }
 }
