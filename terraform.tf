@@ -9,7 +9,7 @@ terraform {
     # workforce pool provider's write-only client secret (kubectl.tf).
     google = {
       source  = "hashicorp/google"
-      version = ">= 7.46, < 8.6"
+      version = ">= 7.46, < 8.8"
     }
     # The cluster resource alone rides the beta provider (a lockstep superset
     # of google): managed_opentelemetry_config has not been promoted to GA.
