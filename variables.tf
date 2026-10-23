@@ -116,8 +116,11 @@ variable "rbac" {
     Google Groups for RBAC, off by default. When enabled, the cluster authenticator trusts gke-security-groups@<domain>
     — the exact name is a GKE requirement. The group itself and the member groups usable as Role/ClusterRoleBinding
     subjects are managed out-of-band in Workspace, never here. groups names the per-role subject groups published to
-    flux-manifests as RBAC_GROUP_<ROLE> cluster vars — each must be nested under the fleet group (out-of-band) for the
-    authenticator to honour it.
+    the platform manifests as RBAC_GROUP_<ROLE> cluster vars, verbatim. Each is either a Google Group email -- nested
+    under the fleet group (out-of-band) for the authenticator to honour it, so it requires enabled -- or a workforce
+    identity group principal set (principalSet://iam.googleapis.com/locations/global/workforcePools/<pool>/group/<group>,
+    the kubectl_oidc output's group_principal_prefix plus a dex group), which GKE resolves through workforce identity
+    federation (sso.kubectl) with no Google Groups RBAC involved.
   EOT
   type = object({
     enabled = optional(bool, false)
@@ -138,13 +141,20 @@ variable "rbac" {
   }
 
   validation {
-    condition     = var.rbac.enabled || alltrue([for group in values(var.rbac.groups) : group == null])
-    error_message = "rbac.groups requires rbac.enabled — without Google Groups RBAC the cluster ignores group subjects."
+    condition = var.rbac.enabled || alltrue([
+      for group in values(var.rbac.groups) : group == null || startswith(group, "principalSet://")
+    ])
+    error_message = "A Google Group email in rbac.groups requires rbac.enabled — without Google Groups RBAC the cluster ignores group subjects (a workforce principalSet needs no toggle)."
   }
 
   validation {
-    condition     = alltrue([for group in values(var.rbac.groups) : group == null || can(regex("^[^@\\s]+@[^@\\s]+$", group))])
-    error_message = "Each rbac.groups entry must be a group email address (e.g. gcp-x-app-developers@example.com)."
+    condition = alltrue([
+      for group in values(var.rbac.groups) : group == null || can(regex(
+        "^([^@\\s/]+@[^@\\s]+|principalSet://iam\\.googleapis\\.com/locations/global/workforcePools/[a-z][a-z0-9-]{4,61}[a-z0-9]/group/[^\\s/]+)$",
+        group,
+      ))
+    ])
+    error_message = "Each rbac.groups entry must be a group email address (e.g. gcp-x-app-developers@example.com) or a workforce group principal set (principalSet://iam.googleapis.com/locations/global/workforcePools/<pool>/group/<group>)."
   }
 }
 
@@ -242,8 +252,8 @@ variable "signed_identity" {
 variable "dns" {
   description = <<-EOT
     Existing delegated Cloud DNS zone (created by cloud-accounts; never owned here). zone_name enables the DNS/TLS
-    surface: external-dns + cert-manager IAM grants and the DNS_* / PATCHY_DOMAIN cluster vars. host optionally narrows
-    the served host below the zone apex.
+    surface: external-dns + cert-manager IAM grants and the DNS_* / PLATFORM_DOMAIN cluster vars. host optionally
+    narrows the served host below the zone apex (PLATFORM_DOMAIN, the parent of the dex. and flux. hosts).
   EOT
   type = object({
     zone_name  = optional(string)
@@ -275,7 +285,7 @@ variable "gateway" {
 
 variable "workload_identity" {
   description = <<-EOT
-    Namespace/service-account pairs the direct Workload Identity grants bind to — the terraform <-> flux-manifests
+    Namespace/service-account pairs the direct Workload Identity grants bind to — the terraform <-> platform manifests
     contract. Override only to track a manifests change.
   EOT
   type = object({
@@ -296,12 +306,6 @@ variable "workload_identity" {
       # the controllers that fetch image signatures from the registry at
       # admission/report time
       service_accounts = optional(list(string), ["kyverno-admission-controller", "kyverno-reports-controller"])
-    }), {})
-    # the patchy egress-broker calls the Vertex AI API itself when
-    # patchy.claude.provider selects vertex
-    patchy_egress_broker = optional(object({
-      namespace       = optional(string, "patchy")
-      service_account = optional(string, "patchy-egress-broker")
     }), {})
     # dex impersonates the directory-reader SA via the classic
     # annotation-based flow, so its pair binds workloadIdentityUser on that
@@ -342,10 +346,11 @@ variable "managed_opentelemetry" {
 variable "secret_sync" {
   description = <<-EOT
     Enable the Secret Manager CSI add-on plus GKE Integrated Secret Synchronization -- the SecretProviderClass and
-    SecretSync CRDs flux-manifests' patchy component uses to materialise Secret Manager secrets as Kubernetes Secrets.
-    Requires GKE >= 1.33 and Workload Identity (always on here). The secret containers and their
-    secretmanager.secretAccessor grants come from modules/secrets, instantiated in a durable root -- not this module,
-    whose lifecycle is the cluster's.
+    SecretSync CRDs the platform manifests (dex, flux-web) and applications use to materialise Secret Manager secrets
+    as Kubernetes Secrets. Requires GKE >= 1.33 and Workload Identity (always on here). The generated dex client
+    secrets live in this module (sso.tf); the out-of-band dex connector containers come from modules/sso-secrets,
+    instantiated in a durable root; an application's containers and their accessor grants come from its own module
+    -- whoever creates a container grants its sync KSA, resource-side.
   EOT
   type        = bool
   nullable    = false
@@ -354,10 +359,11 @@ variable "secret_sync" {
 
 variable "secret_prefix" {
   description = <<-EOT
-    Prefix for every Secret Manager container name the manifests stack syncs, published as the SECRET_PREFIX cluster var
-    (resourceNames become <prefix><container>). Lets multiple clusters share one project with distinct secrets; the
-    modules/secrets instantiation must create the containers and accessor grants under the same prefix. Include the
-    trailing separator (e.g. 'patchy-x-'); empty keeps the unprefixed names.
+    Prefix for every Secret Manager container name the platform and its applications sync, published as the
+    SECRET_PREFIX cluster var (resourceNames become <prefix><container>). Lets multiple clusters share one project with
+    distinct secrets; the modules/sso-secrets instantiation (a durable root, holding the out-of-band dex connector
+    credentials) and every application module creating containers must use the same prefix (the secret_prefix
+    output). Include the trailing separator (e.g. 'platform-x-'); empty keeps the unprefixed names.
   EOT
   type        = string
   default     = null
@@ -368,111 +374,208 @@ variable "secret_prefix" {
   }
 }
 
-variable "stack_components" {
+variable "platform_components" {
   description = <<-EOT
-    The flux-manifests optional-tier components (short names: flux-web, patchy) this cluster elects, published as the
-    STACK_COMPONENTS cluster var. The default elects the whole tier; electing none is explicit -- set []. dex is not
-    elected here: it deploys exactly when sso is enabled, and without it the elected components still run, just with no
-    SSO auth and no human-facing HTTPRoute (kubectl port-forward to reach). The core tier (kyverno, cert-manager,
-    external-dns, gateway, rbac) is not electable.
+    The platform manifests' electable-tier components (short names: flux-web, arc) this cluster elects, published as
+    the PLATFORM_COMPONENTS cluster var. The platform entrypoint's ResourceSet ranges over the election: an elected
+    component gets its own OCIRepository (oci://<registry>/manifests/<name>) and Kustomization. Electing none is
+    explicit - set []. dex is not elected here: it deploys exactly when sso is enabled, and without it the elected
+    components still run, just with no SSO auth and no human-facing HTTPRoute (kubectl port-forward to reach). The core
+    tier (flux, kyverno, kyverno-policies, cert-manager, cert-manager-issuers, external-dns, gateway, rbac, secret-sync,
+    otel-collector) is never electable. Applications are not components: they arrive through var.applications as
+    their own images.
   EOT
   type        = set(string)
   nullable    = false
-  default     = ["flux-web", "patchy"]
+  default     = ["flux-web"]
 
   validation {
     condition = alltrue([
-      for component in var.stack_components : contains(["flux-web", "patchy"], component)
+      for component in var.platform_components : contains(["flux-web", "arc"], component)
     ])
-    error_message = "stack_components entries must be optional-tier short names: flux-web, patchy (dex rides the sso toggle)."
+    error_message = "platform_components entries must be electable-tier short names: flux-web, arc (dex rides the sso toggle; the core tier is never electable)."
   }
 }
 
-variable "patchy" {
+variable "workload_grants" {
   description = <<-EOT
-    Patchy platform knobs. harnesses elects the agent harnesses the cluster runs, published as the AGENT_HARNESSES
-    cluster var -- it gates the chart's per-harness runners and the harness credential syncs; create the matching
-    credential containers with modules/secrets (same value there). claude.provider configures the model provider the
-    patchy egress-broker (the in-cluster proxy
-    terminating all claude-runner model traffic) forwards to, published as the CLAUDE_* cluster vars: CLAUDE_PROVIDER,
-    CLAUDE_ANTHROPIC_AUTH, CLAUDE_VERTEX_REGION, CLAUDE_VERTEX_PROJECT_ID, CLAUDE_MODEL_MAP. name is anthropic or
-    vertex — bedrock needs AWS ambient credentials the broker cannot get on GKE (so its vars are never published),
-    and foundry is deliberately unsupported for now. anthropic_auth picks how the anthropic
-    provider authenticates (key or token). The vertex knobs default onto the cluster's own region/project; when the
-    provider is vertex the broker's KSA also gets roles/aiplatform.user in the serving project (iam.tf). model_map
-    translates canonical model ids to provider model ids, published sorted as canonical=providerID pairs.
-    evaluation.enabled deploys the evaluation controller -- the evolve-facing remote-evaluation API plus the runners
-    that execute submitted evaluation units -- published as the PATCHY_EVALUATION cluster var. It requires sso (the API
-    has no unauthenticated posture; evolve authenticates through dex as a public PKCE client) and at least one harness
-    (the chart refuses an evaluation controller with zero enabled runners).
+    Application workload IAM grants, keyed by a short name: each (entry, role) pair becomes one project-level IAM
+    member binding of the role to the namespace/service-account pair as a direct Workload Identity Federation
+    principal (principal://.../subject/ns/<namespace>/sa/<service_account>), in project (default: the cluster's own).
+    This is how an application module hands its cloud permissions to the cluster (e.g. aiplatform.user for an egress
+    broker): the module emits the map, the root wires it here, and nothing application-specific lives in this module.
+    The platform's own pairs (external-dns, cert-manager, kyverno, otel-collector) are fixed by workload_identity and
+    are not declared here. Secret Manager reads are not a grant shape: whoever creates a secret container grants its
+    sync KSA accessor on it, resource-side.
   EOT
-  type = object({
-    harnesses = optional(set(string), ["claude"])
-
-    # Harness-scoped: the model provider belongs to the claude runner alone.
-    # A future codex/copilot provider surface slots in as a sibling key
-    # (patchy.codex.provider) without renaming anything here.
-    claude = optional(object({
-      provider = optional(object({
-        name              = optional(string, "anthropic") # anthropic or vertex
-        anthropic_auth    = optional(string, "token")     # key or token
-        vertex_region     = optional(string)              # defaults to the cluster region
-        vertex_project_id = optional(string)              # defaults to the cluster project
-        model_map         = optional(map(string), {})     # canonical id -> provider model id
-      }), {})
-    }), {})
-
-    evaluation = optional(object({
-      enabled = optional(bool, false)
-    }), {})
-  })
-  default  = {}
+  type = map(object({
+    namespace       = string
+    service_account = string
+    roles           = list(string)
+    project         = optional(string)
+  }))
   nullable = false
+  default  = {}
+
+  validation {
+    condition     = alltrue([for key in keys(var.workload_grants) : can(regex("^[a-z]([a-z0-9-]{0,38})$", key))])
+    error_message = "workload_grants keys must be short lowercase RFC-1035 labels."
+  }
 
   validation {
     condition = alltrue([
-      for harness in var.patchy.harnesses : contains(["claude", "codex", "copilot"], harness)
+      for key in keys(var.workload_grants) :
+      !contains(["external-dns", "cert-manager", "otel-collector"], key) && !startswith(key, "kyverno-")
     ])
-    error_message = "patchy.harnesses entries must be harness short names: claude, codex, copilot."
+    error_message = "workload_grants keys must not collide with the platform grants (external-dns, cert-manager, otel-collector, kyverno-*)."
   }
 
   validation {
-    condition     = contains(["anthropic", "vertex"], var.patchy.claude.provider.name)
-    error_message = "patchy.claude.provider.name must be anthropic or vertex (bedrock needs AWS ambient credentials the broker cannot get on GKE; foundry is deliberately unsupported for now)."
+    condition = alltrue(flatten([
+      for grant in values(var.workload_grants) : [
+        for role in grant.roles : can(regex("^(roles/|projects/[^/]+/roles/|organizations/[0-9]+/roles/)", role))
+      ]
+    ]))
+    error_message = "Each workload_grants role must be an IAM role name: roles/<role>, projects/<project>/roles/<role> or organizations/<id>/roles/<role>."
+  }
+}
+
+variable "applications" {
+  description = <<-EOT
+    Application manifest images this cluster seeds, keyed by the application's short name. Each entry creates a
+    bootstrap-only seed in flux-system (a ResourceSetInputProvider and ResourceSet named <key>-manifests) that
+    resolves the newest tag matching semver, verifies the image's cosign signature and applies path from it as
+    Kustomization <key>; the image ships the same two seed objects under flux/ and owns them from its first
+    reconcile, so a new application release never needs a terraform apply. Removing a key uninstalls the seed and
+    prunes the application. The entry is applied once and then ignored (ignore_changes), exactly like the
+    flux-operator and flux-instance releases.
+      - url: the image without a tag or digest. An Artifact Registry url must live under platform_registry (the flux
+        controllers pull it with their Workload Identity and list its tags through the Artifact Registry API); any
+        other registry is listed and pulled generically, optionally with pull_secret (a
+        kubernetes.io/dockerconfigjson Secret in flux-system that both the tag listing and the pull read).
+      - semver: the tag range the seed follows (default >=0.0.0); a range matching no tag prunes the application.
+      - path: the Kustomization path inside the image (default ./deploy/<flux.sync.path>, the same per-cloud tree
+        selector the platform uses, published as PLATFORM_TREE).
+      - depends_on: platform Kustomizations the application waits for (default kyverno-policies).
+      - verify: keyless (subject, a Fulcio certificate-subject regexp; issuer defaults to signed_identity.issuer)
+        XOR keyed (the cosign-pub public-key Secret, KMS mode only).
+    Application vars ride separately in application_vars, so a composite image's inner applications can each have
+    their own ConfigMap. An application registers its dex clients itself, as DexClient objects in its own image
+    (the platform's dex-client-controller reconciles them). An application can instead be published from a root of
+    its own with modules/application and this module's application_target output - never from both.
+  EOT
+  type = map(object({
+    url        = string
+    semver     = optional(string, ">=0.0.0")
+    path       = optional(string)
+    interval   = optional(string, "30m")
+    depends_on = optional(set(string), ["kyverno-policies"])
+    verify = object({
+      issuer  = optional(string)
+      subject = optional(string)
+      keyed   = optional(bool, false)
+    })
+    pull_secret = optional(string)
+    prune       = optional(bool, true)
+    wait        = optional(bool, true)
+    timeout     = optional(string, "5m")
+  }))
+  nullable = false
+  default  = {}
+
+  validation {
+    condition     = alltrue([for key in keys(var.applications) : can(regex("^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$", key))])
+    error_message = "applications keys must be short lowercase RFC-1035 labels of at most 32 characters (they name the seed objects <key>-manifests and Kustomization <key>)."
+  }
+
+  # The same list as the AWS module, so an application name is portable
+  # across clouds.
+  validation {
+    condition = alltrue([
+      for key in keys(var.applications) : !contains([
+        "flux-system", "flux", "cilium", "kyverno", "kyverno-policies", "cert-manager", "cert-manager-issuers",
+        "external-dns", "gateway", "gateway-api-crds", "aws-load-balancer-controller", "rbac", "secret-sync", "dex",
+        "flux-web", "arc", "platform", "cluster-inputs",
+      ], key)
+    ])
+    error_message = "applications keys must not reuse a platform Kustomization or component name (flux-system, flux, cilium, kyverno, kyverno-policies, cert-manager, cert-manager-issuers, external-dns, gateway, gateway-api-crds, aws-load-balancer-controller, rbac, secret-sync, dex, flux-web, arc, platform, cluster-inputs) - the registry and the flux-system namespace are one flat namespace."
   }
 
   validation {
-    condition     = contains(["key", "token"], var.patchy.claude.provider.anthropic_auth)
-    error_message = "patchy.claude.provider.anthropic_auth must be key or token."
+    condition = alltrue([
+      for app in values(var.applications) : can(regex("^oci://[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$", app.url))
+    ])
+    error_message = "Each applications entry's url must be oci://<host>/<repository> with no tag or digest (the seed resolves the tag from semver)."
   }
 
   validation {
-    condition     = var.patchy.claude.provider.name == "vertex" || var.patchy.claude.provider.vertex_region == null
-    error_message = "patchy.claude.provider.vertex_region requires provider name vertex."
+    condition = alltrue([
+      for app in values(var.applications) :
+      !can(regex("^oci://[a-z0-9-]+-docker\\.pkg\\.dev/", app.url)) || startswith(app.url, "oci://${var.platform_registry}/")
+    ])
+    error_message = "An Artifact Registry-hosted applications url must live under platform_registry - the flux controllers hold read rights on that repository alone, and its tags are listed through the Artifact Registry API with the same identity."
   }
 
   validation {
-    condition     = var.patchy.claude.provider.name == "vertex" || var.patchy.claude.provider.vertex_project_id == null
-    error_message = "patchy.claude.provider.vertex_project_id requires provider name vertex."
+    condition = alltrue([
+      for app in values(var.applications) : (app.verify.subject != null) != app.verify.keyed
+    ])
+    error_message = "Each applications entry's verify must be keyless (subject) or keyed, never both or neither - an unverified application image is never applied."
   }
 
   validation {
-    condition     = !var.patchy.evaluation.enabled || var.sso.enabled
-    error_message = "patchy.evaluation requires sso -- the evaluation API has no unauthenticated posture; evolve authenticates through dex."
+    condition = alltrue([
+      for app in values(var.applications) : !app.verify.keyed || var.signed_identity.kms_key_name != null
+    ])
+    error_message = "applications[*].verify.keyed requires signed_identity.kms_key_name: the cosign-pub Secret only exists in KMS mode."
   }
 
   validation {
-    condition     = !var.patchy.evaluation.enabled || length(var.patchy.harnesses) > 0
-    error_message = "patchy.evaluation requires at least one harness -- the chart refuses an evaluation controller with zero enabled runners."
+    condition = alltrue([
+      for app in values(var.applications) : app.verify.subject == null || app.verify.issuer != null || var.signed_identity.kms_key_name == null
+    ])
+    error_message = "A keyless applications entry on a KMS-mode cluster must set verify.issuer explicitly - there is no keyless issuer to default onto."
+  }
+
+  validation {
+    condition = alltrue([
+      for app in values(var.applications) : app.pull_secret == null || !startswith(app.url, "oci://${var.platform_registry}/")
+    ])
+    error_message = "applications[*].pull_secret only applies to images outside the platform registry - the platform registry is pulled with the flux controllers' Workload Identity."
+  }
+}
+
+variable "application_vars" {
+  description = <<-EOT
+    Per-application substitution values, keyed by application short name: each entry is rendered as the <key>-vars
+    ConfigMap in flux-system (terraform-reconciled through cluster-inputs, so changes flow through applies), which the
+    application's Kustomization substitutes from beside cluster-vars. Keys are top-level rather than nested in
+    applications so a composite image's inner applications can each have their own ConfigMap. Keys must be
+    SCREAMING_SNAKE_CASE, matching the substitution syntax; an application's own module typically emits this map.
+  EOT
+  type        = map(map(string))
+  nullable    = false
+  default     = {}
+
+  validation {
+    condition     = alltrue([for key in keys(var.application_vars) : can(regex("^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$", key))])
+    error_message = "application_vars keys must be short lowercase RFC-1035 labels (they name the <key>-vars ConfigMap)."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for vars in values(var.application_vars) : [for name in keys(vars) : can(regex("^[A-Z][A-Z0-9_]*$", name))]
+    ]))
+    error_message = "application_vars entries must use SCREAMING_SNAKE_CASE keys (^[A-Z][A-Z0-9_]*$), the shape flux substitution reads."
   }
 }
 
 variable "sso" {
   description = <<-EOT
-    Platform SSO: deploys dex as the OIDC identity provider and wires every elected relying party to it -- generated
-    client pairs (sso.tf), the DEX_CONNECTORS/DEX_DIRECTORY_SA cluster vars, and the human-facing HTTPRoutes. Upstream
-    identity is arbitrary: connector declares the deployment's single upstream IdP -- which connector type a
-    deployment federates isn't known ahead of time, but it only ever federates one --
+    Platform SSO: deploys dex as the OIDC identity provider and wires the platform's relying parties to it --
+    generated client pairs (sso.tf), the DEX_CONNECTORS/DEX_CLIENTS/DEX_DIRECTORY_SA cluster vars, and the
+    human-facing HTTPRoutes. Upstream identity is arbitrary: connector declares the deployment's single upstream IdP
+    -- which connector type a deployment federates isn't known ahead of time, but it only ever federates one --
       - type: the dex connector type (oidc, saml, google, microsoft, github, ...), passed through verbatim, not
         validated against dex's own supported list.
       - id: the dex connector id, also the naming stem for the credential containers (dex-<id>-<field>) and env vars;
@@ -483,19 +586,26 @@ variable "sso" {
         Values keep their native types (bools, lists, numbers) all the way into dex's rendered YAML, e.g.
         fetchTransitiveGroupMembership = true stays a bool.
       - secrets: the out-of-band credential fields this connector needs (default ["client-id", "client-secret"]).
-        Each field becomes a dex-<id>-<field> Secret Manager container (modules/secrets, created out of band -- an
-        OAuth client cannot be terraformed) and a <ID>_<FIELD> env var (uppercased, dashes -> underscores) dex expands
-        from its own process env at startup ($<ID>_<FIELD>) -- reference it yourself, e.g.
+        Each field becomes a dex-<id>-<field> Secret Manager container (modules/sso-secrets, instantiated in a durable
+        root -- an OAuth client cannot be terraformed) and a <ID>_<FIELD> env var (uppercased, dashes -> underscores)
+        dex expands from its own process env at startup ($<ID>_<FIELD>) -- reference it yourself, e.g.
         config.clientID = "$GOOGLE_CLIENT_ID".
     directory_sa is the keyless Workspace directory-reader service account dex's google connector impersonates for
     group claims (domain-wide delegation) -- independently optional, only relevant to a google-typed connector. When
     set, this module binds workloadIdentityUser on it for the cluster's dex KSA (sso.tf): the applying identity needs
     the get/setIamPolicy delegation cloud-accounts grants the app's terraform-apply container on that SA. Requires the
-    DNS surface: the issuer and redirect URLs need the served domain. clients holds the per-client knobs for the
-    generated relying-party pairs (keys: flux-web, patchy-status) -- today just version, the client secret's rotation
-    counter (absent clients sit at 1): bump it to mint a new client secret; the raw dex-client-* container and any
-    config document embedding the same value rewrite in one apply, so the pair cannot drift (then restart dex: it
-    reads client secrets from env at startup)."
+    DNS surface: the issuer and redirect URLs need the served domain.
+    kubectl turns on kubectl through dex via Workforce Identity Federation (kubectl.tf): a workforce pool (pool_id,
+    default <name>-dex) under organization_id whose OIDC provider (provider_id) trusts dex as its issuer through a
+    confidential dex client (client_id, published in DEX_CLIENTS). Users sign in with gcloud's workforce login config
+    and reach the cluster with get-credentials; RBAC binds their dex groups as principalSet subjects (rbac.groups).
+    clients holds the per-client knobs for the generated confidential pairs (keys: flux-web and, when kubectl is on,
+    its client_id) -- today just version, the client secret's rotation counter (absent clients sit at 1): bump it to
+    mint a new client secret; the raw dex-client-<id> container and every consumer written from the same value (the
+    flux-web config document, the workforce provider) rewrite in one apply, so the pair cannot drift (then restart
+    dex: it reads client secrets from env at startup).
+    Application clients are not here: an application ships DexClient objects in its own image, and the platform's
+    dex-client-controller registers them.
   EOT
   # config is bare any, NOT map(any): map(any) unifies the map's value
   # types, so a mixed-type config ({clientID = "$...",
@@ -516,6 +626,13 @@ variable "sso" {
       secrets = optional(set(string), ["client-id", "client-secret"])
     }))
     directory_sa = optional(string)
+    kubectl = optional(object({
+      enabled         = optional(bool, false)
+      organization_id = optional(string)
+      pool_id         = optional(string)
+      provider_id     = optional(string, "dex-oidc")
+      client_id       = optional(string, "gcp-workforce")
+    }), {})
     clients = optional(map(object({
       version = number
     })), {})
@@ -534,8 +651,11 @@ variable "sso" {
   }
 
   validation {
-    condition     = alltrue([for client in keys(var.sso.clients) : contains(["flux-web", "patchy-status"], client)])
-    error_message = "sso.clients keys must be generated client ids: flux-web, patchy-status."
+    condition = alltrue([
+      for client in keys(var.sso.clients) :
+      client == "flux-web" || (var.sso.kubectl.enabled && client == var.sso.kubectl.client_id)
+    ])
+    error_message = "sso.clients keys must be generated client ids: flux-web, or sso.kubectl.client_id when sso.kubectl is enabled."
   }
 
   validation {
@@ -557,14 +677,45 @@ variable "sso" {
     ])
     error_message = "sso.connector.secrets entries must match ^[a-z0-9-]+$."
   }
+
+  validation {
+    condition     = !var.sso.kubectl.enabled || var.sso.enabled
+    error_message = "sso.kubectl requires sso.enabled -- the workforce pool's OIDC provider trusts dex as its issuer."
+  }
+
+  validation {
+    condition     = !var.sso.kubectl.enabled || can(regex("^[0-9]+$", var.sso.kubectl.organization_id))
+    error_message = "sso.kubectl.enabled requires sso.kubectl.organization_id, the numeric organization id the workforce pool lives under."
+  }
+
+  validation {
+    condition = (
+      can(regex("^[a-z][a-z0-9-]{4,61}[a-z0-9]$", coalesce(var.sso.kubectl.pool_id, "${var.name}-dex")))
+      && !startswith(coalesce(var.sso.kubectl.pool_id, "${var.name}-dex"), "gcp-")
+    )
+    error_message = "sso.kubectl.pool_id (default <name>-dex) must be a workforce pool id: 6-63 lowercase letters, digits or hyphens, starting with a letter, not ending with a hyphen, and not starting with the reserved gcp- prefix."
+  }
+
+  validation {
+    condition     = can(regex("^[a-z0-9-]{4,32}$", var.sso.kubectl.provider_id)) && !startswith(var.sso.kubectl.provider_id, "gcp-")
+    error_message = "sso.kubectl.provider_id (default dex-oidc) must be a workforce pool provider id: 4-32 lowercase letters, digits or hyphens, not starting with the reserved gcp- prefix."
+  }
+
+  validation {
+    condition     = var.sso.kubectl.client_id != "flux-web" && can(regex("^[a-z0-9-]+$", var.sso.kubectl.client_id))
+    error_message = "sso.kubectl.client_id must match ^[a-z0-9-]+$ and must not be flux-web (another platform client)."
+  }
 }
 
 variable "flux" {
   description = <<-EOT
     Flux bootstrap knobs. Chart repositories, the distribution registry and the sync url default onto platform_registry;
     sync.ref picks the release channel (stable, staging, or edge for dev clusters tracking trunk -- pair edge with the
-    manifests_edge signing subject); sync.path selects the manifests' per-cloud entrypoint tree ("google" -- requires
-    flux-manifests >= 3.0.0, whose artifact ships the aws/google/common trees).
+    manifests_edge signing subject); sync.url defaults to the platform entrypoint image
+    oci://<platform_registry>/manifests/platform (flux-manifests >= 4.0.0), published as FLUX_SYNC_URL so the
+    platform's flux component can re-point a running cluster; sync.path selects the per-cloud tree inside it
+    ("google"), published as PLATFORM_TREE and the default ./deploy/<path> of every application image. namespaces are
+    pre-created by the cluster-inputs chart ahead of the platform.
   EOT
   type = object({
     operator_chart = optional(object({

@@ -1,15 +1,21 @@
 # flux-operator
 
-Bootstraps flux-operator on the cluster and points it at the signed flux-manifests artifact in the platform registry:
-three helm releases (flux-operator → cluster-inputs → flux-instance) take an empty cluster to a reconciling GitOps
-platform in one `terraform apply`.
+Bootstraps flux-operator on the cluster and points it at the signed platform entrypoint image
+(`oci://<registry>/manifests/platform`) in the platform registry: three helm releases (flux-operator → cluster-inputs →
+flux-instance), plus one seed per application, take an empty cluster to a reconciling GitOps platform in one
+`terraform apply`.
 
-The generated `flux-system` OCIRepository is patched with cosign **keyless** verification (`matchOIDCIdentity` pinning
-the flux-manifests publish workflow), and the source-controller / flux-operator service accounts get direct Workload
-Identity grants for Artifact Registry reads — no key material, no GSAs, no annotations.
+The generated `flux-system` OCIRepository is patched with cosign verification — **keyless** (`matchOIDCIdentity`
+pinning the flux-manifests publish workflow) or **keyed** (the `cosign-pub` Secret the cluster-inputs chart renders from
+a KMS key's public half) — and the source-controller / flux-operator service accounts get direct Workload Identity
+grants for Artifact Registry reads: no GSAs, no annotations.
 
-The local `charts/cluster-inputs` chart delivers the terraform ↔ flux-manifests contract: the `cluster-vars` ConfigMap
-(substituted into every stack Kustomization via `postBuild.substituteFrom`) and any pre-created namespaces.
+The local `charts/cluster-inputs` chart delivers the terraform ↔ platform contract: the `cluster-vars` ConfigMap
+(substituted into every Kustomization via `postBuild.substituteFrom`), one `<key>-vars` ConfigMap per
+`application_vars` entry, and any pre-created namespaces. Each `applications` entry becomes a bootstrap-only
+`application-<key>` release of the shared seed chart in [`../application/charts/application`](../application/), listed
+with `GARArtifactTag` and pulled as provider `gcp` under the platform registry (`OCIArtifactTag` / `generic`
+elsewhere).
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
@@ -36,6 +42,7 @@ No modules.
 | Name | Type |
 | ---- | ---- |
 | [google_project_iam_member.registry_read](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [helm_release.application](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.cluster_inputs](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.flux_instance](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.flux_operator](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
@@ -50,8 +57,10 @@ No modules.
 | project | Project ID the cluster (and its workload identity pool) lives in. | `string` | n/a | yes |
 | project\_number | Project number, for composing principal:// workload identity members at plan time. | `string` | n/a | yes |
 | signed\_identity | Cosign verification enforced on the generated flux-system OCIRepository, so an unsigned or tampered manifests<br/>artifact is never applied. Exactly one mode: keyless (issuer + manifests\_subject, Go regexps over the Fulcio<br/>certificate) or a signing key's public half (kms\_public\_key\_pem, distributed as the cosign-pub Secret the verify<br/>patch references — source-controller verifies against the public key and never calls KMS). | <pre>object({<br/>    issuer             = optional(string)<br/>    manifests_subject  = optional(string)<br/>    kms_public_key_pem = optional(string)<br/>  })</pre> | n/a | yes |
-| sync | Cluster sync source: the flux-manifests artifact in the platform registry and the path within it. | <pre>object({<br/>    url      = string # oci://<registry>/flux-manifests<br/>    ref      = string # channel tag (stable, staging) or exact version<br/>    path     = string # stack (the single entrypoint all clusters share)<br/>    interval = optional(string, "5m")<br/>  })</pre> | n/a | yes |
-| cluster\_vars | The cluster-vars ConfigMap contents — every value the flux-manifests stack substitutes via<br/>postBuild.substituteFrom. | `map(string)` | `{}` | no |
+| sync | Cluster sync source: the platform entrypoint image in the platform registry and the per-cloud tree within it. | <pre>object({<br/>    url      = string # oci://<registry>/manifests/platform<br/>    ref      = string # channel tag (stable, staging) or exact version<br/>    path     = string # the per-cloud tree ("google" for this module)<br/>    interval = optional(string, "5m")<br/>  })</pre> | n/a | yes |
+| application\_vars | Per-application substitution ConfigMaps rendered by the cluster-inputs chart: one <key>-vars ConfigMap per<br/>entry, which the application's Kustomization substitutes from beside cluster-vars. Terraform-reconciled, so<br/>changes flow through applies. | `map(map(string))` | `{}` | no |
+| applications | Application manifest images to seed, keyed by short name, with every default already resolved by the caller.<br/>Each entry becomes one bootstrap-only helm release of the local application chart: a ResourceSetInputProvider<br/>and ResourceSet named <key>-manifests in the namespace, which resolve the newest tag matching semver, verify<br/>the image (keyless issuer + subject, or keyed against the cosign-pub Secret) and apply path from it as<br/>Kustomization <key>. platform says whether the image lives in the platform registry: then the flux controllers<br/>list its tags through the Artifact Registry API (GARArtifactTag) and pull it with their Workload Identity<br/>(provider gcp); otherwise the generic OCI listing and pull apply (OCIArtifactTag / generic), with pull\_secret<br/>naming a kubernetes.io/dockerconfigjson Secret in the namespace when the registry needs credentials. The image<br/>ships the same two seed objects and owns them from its first reconcile; the release is never reconciled again<br/>(ignore\_changes), and uninstalling it (removing the key) is what removes the application. | <pre>map(object({<br/>    url        = string<br/>    platform   = bool<br/>    semver     = string<br/>    path       = string<br/>    interval   = string<br/>    depends_on = set(string)<br/>    verify = object({<br/>      keyed   = bool<br/>      issuer  = optional(string)<br/>      subject = optional(string)<br/>    })<br/>    pull_secret = optional(string)<br/>    prune       = bool<br/>    wait        = bool<br/>    timeout     = string<br/>  }))</pre> | `{}` | no |
+| cluster\_vars | The cluster-vars ConfigMap contents — every value the platform manifests (and applications) substitute via<br/>postBuild.substituteFrom. | `map(string)` | `{}` | no |
 | grant\_registry\_read | Grant the flux principals artifactregistry.reader on the cluster's project. On only when the platform registry is<br/>co-located; a central registry grants them via the artifact-store module's reader\_members instead. | `bool` | `true` | no |
 | kustomize\_patches | Extra kustomize patches applied to the generated Flux instance objects, on top of the built-in controller<br/>nodeSelector and flux-system OCIRepository verify patches. | `list(any)` | `[]` | no |
 | namespace | Namespace for the flux-operator and Flux controllers. | `string` | `"flux-system"` | no |
@@ -62,6 +71,7 @@ No modules.
 
 | Name | Description |
 | ---- | ----------- |
-| cluster\_vars\_configmap | Name of the cluster-vars ConfigMap the stack substitutes from. |
+| applications | The application seeds, keyed as var.applications: the bootstrap-only helm release name, the namespace the seed<br/>objects (<key>-manifests) live in, and the providers the registry selected (GARArtifactTag / gcp under the<br/>platform prefix, OCIArtifactTag / generic elsewhere). |
+| cluster\_vars\_configmap | Name of the cluster-vars ConfigMap the platform substitutes from. |
 | namespace | The flux namespace. |
 <!-- END_TF_DOCS -->

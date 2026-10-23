@@ -2,9 +2,13 @@
 # SPDX-License-Identifier: MIT
 
 # Direct Workload Identity Federation grants for the flux-deployed platform
-# workloads. The namespace/service-account pairs are the terraform <->
-# flux-manifests contract (overridable via var.workload_identity so this repo
-# can track a manifests change without a schema change).
+# workloads and the caller's applications. The platform's namespace/
+# service-account pairs are the terraform <-> platform manifests contract
+# (overridable via var.workload_identity so this repo can track a manifests
+# change without a schema change); application pairs arrive through the
+# generic var.workload_grants map, so this module knows no application by
+# name. Secret Manager reads are deliberately not a grant shape here:
+# whoever creates a secret container grants its sync KSA accessor on it.
 #
 # flux-system's own grants (source-controller, flux-operator) live in
 # modules/flux-operator/iam.tf next to the workloads they serve.
@@ -55,21 +59,19 @@ locals {
     }
   }
 
-  # The patchy egress-broker terminates all claude-runner model traffic; on
-  # the vertex provider it calls the Vertex AI API itself, so its KSA gets
-  # aiplatform.user in the serving project (the configured vertex project, or
-  # the cluster's own) as a direct federated principal. The anthropic provider
-  # authenticates with an API key/token instead — no grant.
-  patchy_grants = var.patchy.claude.provider.name != "vertex" ? {} : {
-    patchy-egress-broker = {
-      namespace       = var.workload_identity.patchy_egress_broker.namespace
-      service_account = var.workload_identity.patchy_egress_broker.service_account
-      roles           = ["roles/aiplatform.user"]
-      project         = coalesce(var.patchy.claude.provider.vertex_project_id, var.project)
+  # Application grants, verbatim: the roles are the application module's,
+  # the project defaults onto the cluster's own. The variable's validations
+  # keep these keys clear of the platform's.
+  application_grants = {
+    for key, grant in var.workload_grants : key => {
+      namespace       = grant.namespace
+      service_account = grant.service_account
+      roles           = grant.roles
+      project         = coalesce(grant.project, var.project)
     }
   }
 
-  workload_grants = merge(local.kyverno_grants, local.dns_grants, local.otel_grants, local.patchy_grants)
+  workload_grants = merge(local.kyverno_grants, local.dns_grants, local.otel_grants, local.application_grants)
 
   workload_role_grants = merge([
     for name, grant in local.workload_grants : {

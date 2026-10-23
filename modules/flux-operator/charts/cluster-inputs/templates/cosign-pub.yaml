@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 {{- /* The signing key's public half, for keyed cosign verification: the
        flux-system OCIRepository verify patch references this Secret; the
-       stack renders its own per-namespace copies from the COSIGN_PUBLIC_KEY
+       platform renders its own per-namespace copies from the COSIGN_PUBLIC_KEY
        cluster var wherever else artifacts are verified. Absent entirely in
        keyless mode. */}}
 {{- if .Values.cosignPublicKey }}
@@ -12,7 +12,7 @@ metadata:
   name: cosign-pub
   namespace: {{ .Release.Namespace }}
   labels:
-    patchy.internal/input: cosign-pub
+    platform.internal/input: cosign-pub
 type: Opaque
 stringData:
   cosign.pub: {{ .Values.cosignPublicKey | quote }}

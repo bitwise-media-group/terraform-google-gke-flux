@@ -59,14 +59,70 @@ variable "distribution" {
 }
 
 variable "sync" {
-  description = "Cluster sync source: the flux-manifests artifact in the platform registry and the path within it."
+  description = "Cluster sync source: the platform entrypoint image in the platform registry and the per-cloud tree within it."
   type = object({
-    url      = string # oci://<registry>/flux-manifests
+    url      = string # oci://<registry>/manifests/platform
     ref      = string # channel tag (stable, staging) or exact version
-    path     = string # stack (the single entrypoint all clusters share)
+    path     = string # the per-cloud tree ("google" for this module)
     interval = optional(string, "5m")
   })
   nullable = false
+}
+
+variable "applications" {
+  description = <<-EOT
+    Application manifest images to seed, keyed by short name, with every default already resolved by the caller.
+    Each entry becomes one bootstrap-only helm release of the local application chart: a ResourceSetInputProvider
+    and ResourceSet named <key>-manifests in the namespace, which resolve the newest tag matching semver, verify
+    the image (keyless issuer + subject, or keyed against the cosign-pub Secret) and apply path from it as
+    Kustomization <key>. platform says whether the image lives in the platform registry: then the flux controllers
+    list its tags through the Artifact Registry API (GARArtifactTag) and pull it with their Workload Identity
+    (provider gcp); otherwise the generic OCI listing and pull apply (OCIArtifactTag / generic), with pull_secret
+    naming a kubernetes.io/dockerconfigjson Secret in the namespace when the registry needs credentials. The image
+    ships the same two seed objects and owns them from its first reconcile; the release is never reconciled again
+    (ignore_changes), and uninstalling it (removing the key) is what removes the application.
+  EOT
+  type = map(object({
+    url        = string
+    platform   = bool
+    semver     = string
+    path       = string
+    interval   = string
+    depends_on = set(string)
+    verify = object({
+      keyed   = bool
+      issuer  = optional(string)
+      subject = optional(string)
+    })
+    pull_secret = optional(string)
+    prune       = bool
+    wait        = bool
+    timeout     = string
+  }))
+  nullable = false
+  default  = {}
+
+  validation {
+    condition = alltrue([
+      for app in values(var.applications) : app.verify.keyed ? (
+        var.signed_identity.kms_public_key_pem != null && app.verify.subject == null
+        ) : (
+        app.verify.issuer != null && app.verify.subject != null
+      )
+    ])
+    error_message = "Each applications entry verifies keyless (issuer + subject) or keyed (the cosign-pub Secret, which only exists in keyed signed_identity mode), never both or neither."
+  }
+}
+
+variable "application_vars" {
+  description = <<-EOT
+    Per-application substitution ConfigMaps rendered by the cluster-inputs chart: one <key>-vars ConfigMap per
+    entry, which the application's Kustomization substitutes from beside cluster-vars. Terraform-reconciled, so
+    changes flow through applies.
+  EOT
+  type        = map(map(string))
+  nullable    = false
+  default     = {}
 }
 
 variable "signed_identity" {
@@ -103,7 +159,7 @@ variable "kustomize_patches" {
 
 variable "cluster_vars" {
   description = <<-EOT
-    The cluster-vars ConfigMap contents — every value the flux-manifests stack substitutes via
+    The cluster-vars ConfigMap contents — every value the platform manifests (and applications) substitute via
     postBuild.substituteFrom.
   EOT
   type        = map(string)

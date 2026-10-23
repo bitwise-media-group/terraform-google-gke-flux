@@ -1,7 +1,8 @@
 # artifact-store
 
 One Artifact Registry docker repository holding everything the platform consumes — mirrored charts (`charts/<name>`),
-digest-pinned mirrored images (`images/<original-path>`) and the signed `flux-manifests` sync artifact — plus the GitHub
+digest-pinned mirrored images (`images/<original-path>`) and the signed manifest images (`manifests/platform`, the
+entrypoint the clusters sync, and `manifests/<component>` / `manifests/<app>` beside it) — plus the GitHub
 Actions publishing trust: two impersonatable publisher service accounts bound to the org's central Workload Identity
 Federation pool. The pool/provider are owned by cloud-accounts and passed in via the required `wif` input — never
 created here.
@@ -59,7 +60,7 @@ No modules.
 | name | Base name for the publisher service accounts (account\_id prefix, so keep it short). | `string` | `"platform"` | no |
 | promotion\_environment | GitHub environment (protected, reviewer-gated) whose jobs may move the stable channel tag. | `string` | `"production"` | no |
 | reader\_members | IAM members granted artifactregistry.reader on the repository. Coarse grants are the intended shape (content<br/>security is cosign verification, not read denial): the org-wide service-account principal set plus one<br/>all-identities workload-identity-pool principalSet per cluster project. Per-identity least privilege remains<br/>possible via each cluster's registry\_reader\_members output. | `list(string)` | `[]` | no |
-| repository\_id | Artifact Registry repository id. Charts land under charts/<name>, images under images/<original-path>, and the<br/>manifests artifact at flux-manifests within it. | `string` | `"platform"` | no |
+| repository\_id | Artifact Registry repository id. Charts land under charts/<name>, images under images/<original-path>, and the<br/>signed manifest images under manifests/<name> within it (manifests/platform, the entrypoint the clusters sync;<br/>manifests/<component> and manifests/<app> beside it). | `string` | `"platform"` | no |
 | signing\_kms\_key\_name | Asymmetric SIGN Cloud KMS crypto key the publish workflows sign artifacts with (cosign sign --key gcpkms://<name>),<br/>instead of keyless Fulcio identities. When set, both publisher service accounts get cloudkms signerVerifier +<br/>viewer on the key; feed the same name to the cluster module's signed\_identity.kms\_key\_name so verification<br/>matches. Null keeps signing keyless (the signed\_identity\_subjects output). The key itself lives outside this<br/>module — signing identity should outlive any one store. | `string` | `null` | no |
 | untagged\_expiry\_days | Days after which untagged manifests (failed/superseded pushes) are deleted. | `number` | `14` | no |
 
@@ -70,7 +71,7 @@ No modules.
 | chart\_publisher | Chart publisher service account (email is the service\_account input of google-github-actions/auth in flux-containers, set as the GCP\_CHART\_PUBLISHER\_SA / GCP\_MANIFEST\_PUBLISHER\_SA org variables). |
 | chart\_repository\_prefix | OCI prefix mirrored charts are published under (charts/<name> appended per chart). |
 | image\_repository\_prefix | Registry prefix mirrored images are published under (images/<original-path> appended per image). |
-| manifest\_artifact\_url | OCI url of the flux-manifests artifact the clusters sync. |
+| manifest\_artifact\_url | OCI url of the platform entrypoint image the clusters sync (manifests/platform; the components and applications it seeds sit beside it under manifests/<name>). |
 | manifest\_publisher | Manifest publisher service account (email is the service\_account input of google-github-actions/auth in flux-manifests, set as the GCP\_CHART\_PUBLISHER\_SA / GCP\_MANIFEST\_PUBLISHER\_SA org variables). |
 | platform\_registry | The platform registry prefix — the value of the cluster's platform\_registry variable and the PLATFORM\_REGISTRY cluster var. |
 | registry\_host | Registry hostname for docker/helm/crane login (oauth2accesstoken + access token). |

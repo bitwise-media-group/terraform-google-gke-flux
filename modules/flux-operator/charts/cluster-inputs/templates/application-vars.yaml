@@ -1,0 +1,20 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+{{- /* One <key>-vars ConfigMap per application: the application's own
+       substitution values, read beside cluster-vars by its Kustomization
+       (postBuild.substituteFrom, optional so an application with no vars
+       still reconciles). Terraform-reconciled like cluster-vars. */}}
+{{- range $name, $vars := .Values.applicationVars }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-vars
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    platform.internal/input: application-vars
+data:
+  {{- range $key, $value := $vars }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}

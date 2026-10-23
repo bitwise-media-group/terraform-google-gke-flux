@@ -1,54 +1,87 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 
-# The per-cluster SSO client pairs between dex and its in-cluster relying
-# parties (the Flux status web UI, the patchy status page). These are
-# internal shared secrets with the cluster's lifecycle -- generated here,
-# never entered out of band: each value is an ephemeral random_password
-# written through write-only attributes, so it exists in Secret Manager and
-# nowhere else (not in state, not in plan). The manifests stack syncs each
-# container into its consumer namespaces under the same SECRET_PREFIX this
-# module publishes.
+# The per-cluster SSO client pairs between dex and the platform's own relying
+# parties (the Flux status web UI, the workforce identity provider kubectl
+# signs in through). Application clients are not here: an application ships
+# DexClient objects in its own image, and the platform's dex-client-controller
+# registers them with dex and keeps their secrets in the application's
+# namespace. The platform clients are internal shared secrets with the
+# cluster's lifecycle -- generated here, never entered out of band: each value
+# is an ephemeral random_password written through write-only attributes, so it
+# exists in Secret Manager (and, for the workforce client, in IAM) and nowhere
+# else (not in state, not in plan). The platform's dex component syncs each
+# ${SECRET_PREFIX}dex-client-<id> container into dex's env.
 #
-# local.dex_connectors also lives here: it normalizes var.sso.connector
-# (defaulting id and name, injecting a shared redirectURI) into the shape
-# flux.tf publishes as DEX_CONNECTORS; modules/secrets applies the same
-# id-defaults-to-type rule for its dex-<id>-<field> containers, so the
-# naming cannot drift between them.
+# Two consumers need the value INLINE rather than as a raw key, each written
+# from the same ephemeral value as its raw dex-client-<id> container in the
+# same apply, so the pair cannot drift:
+#   - flux-web-auth-config: the flux-operator Web Config API document (the
+#     operator accepts no file or env indirection).
+#   - the workforce pool provider's OIDC client secret (kubectl.tf), which
+#     Google presents to dex in the authorization-code exchange.
 #
-# Two consumers need the value INLINE in a composed config document rather
-# than as a raw key:
-#   - flux-web-auth-config: the flux-operator Web Config API document
-#     (the operator accepts no file or env indirection). Written from the
-#     same ephemeral value as the raw dex-client-flux-web container in the
-#     same apply, so the pair cannot drift.
-#   - patchy-status-auth-config: patchy's status server DOES support
-#     clientSecretFile, so its document is secretless and both sides read
-#     the one dex-client-patchy-status version.
-#
-# Everything here follows the optional-tier election (stack_components) and
-# requires the DNS surface (issuer and redirect URLs need the domain): an
+# Everything here follows the elections (platform_components, sso.kubectl)
+# and requires the DNS surface (issuer and redirect URLs need the domain): an
 # unelected relying party gets no client, no container, no grants.
+#
+# dex federates to whatever upstream identity provider sso.connector
+# declares; local.dex_connectors normalizes that declaration (defaulting id
+# and name, injecting a shared redirectURI) into the shape flux.tf publishes
+# as DEX_CONNECTORS. The dex-<id>-<field> credential containers the
+# declaration implies live in modules/sso-secrets, instantiated in a durable
+# root and fed the same sso value verbatim (applying the same
+# id-defaults-to-type rule, so the naming cannot drift) -- an upstream OAuth
+# client outlives any one cluster, so its out-of-band credentials must too.
 
 locals {
   # Normalized container-name prefix (the variable is nullable; the
   # empty-string convention applies everywhere downstream).
   secret_prefix = var.secret_prefix != null ? var.secret_prefix : ""
 
-  # client id -> the KSA subjects allowed to read its raw secret: always
-  # dex (staticClients read via secretEnv), plus patchy's status server for
-  # the client whose config points clientSecretFile at the synced key.
-  # A pair exists only when sso deploys dex AND the relying party is
-  # elected (dns is a validated prerequisite of sso, so patchy_domain is
-  # never null here).
-  dex_client_readers = var.sso.enabled ? merge(
-    contains(var.stack_components, "flux-web") ? {
-      flux-web = ["ns/dex/sa/dex-secrets"]
+  # The workforce pool kubectl signs in through (kubectl.tf), and the
+  # callback Google's workforce sign-in returns to -- dex must list it as the
+  # client's redirect URI.
+  kubectl_enabled  = var.sso.enabled && var.sso.kubectl.enabled
+  kubectl_pool_id  = coalesce(var.sso.kubectl.pool_id, "${var.name}-dex")
+  kubectl_callback = "https://auth.cloud.google/signin-callback/locations/global/workforcePools/${local.kubectl_pool_id}/providers/${var.sso.kubectl.provider_id}"
+
+  # The platform's own relying parties: the Flux status web UI when elected,
+  # and the workforce identity client when sso.kubectl is on. Both
+  # confidential; both exist only when sso deploys dex (dns is a validated
+  # prerequisite of sso, so platform_domain is never null here).
+  platform_dex_clients = var.sso.enabled ? merge(
+    contains(var.platform_components, "flux-web") ? {
+      flux-web = {
+        name          = "Flux Status"
+        public        = false
+        redirect_uris = ["https://flux.${local.platform_domain}/oauth2/callback"]
+        version       = try(var.sso.clients["flux-web"].version, 1)
+      }
     } : {},
-    contains(var.stack_components, "patchy") ? {
-      patchy-status = ["ns/dex/sa/dex-secrets", "ns/patchy/sa/patchy-secrets"]
+    local.kubectl_enabled ? {
+      (var.sso.kubectl.client_id) = {
+        name          = "Google Cloud"
+        public        = false
+        redirect_uris = [local.kubectl_callback]
+        version       = try(var.sso.clients[var.sso.kubectl.client_id].version, 1)
+      }
     } : {},
   ) : {}
+
+  # client id -> the normalized client. This is what DEX_CLIENTS publishes
+  # (flux.tf) and what the containers below are minted from, so the two
+  # cannot drift.
+  dex_clients = local.platform_dex_clients
+
+  # The clients that carry a generated secret, with the KSA subjects allowed
+  # to read it: dex alone (staticClients read via env). flux-web's own
+  # consumer reads the composed flux-web-auth-config document instead, and
+  # the workforce provider holds its copy in IAM.
+  dex_client_readers = {
+    for id, client in local.dex_clients : id => ["ns/dex/sa/dex-secrets"]
+    if !client.public
+  }
 
   # projects/<project>/serviceAccounts/<email>, the project recovered from
   # the email (shape enforced by the sso.directory_sa validation) so callers
@@ -75,7 +108,7 @@ locals {
       type    = var.sso.connector.type
       name    = coalesce(var.sso.connector.name, local.dex_connector_id)
       secrets = var.sso.connector.secrets
-      config  = merge({ redirectURI = "https://dex.${local.patchy_domain}/callback" }, var.sso.connector.config)
+      config  = merge({ redirectURI = "https://dex.${local.platform_domain}/callback" }, var.sso.connector.config)
     }
   } : {}
 }
@@ -100,8 +133,10 @@ resource "google_service_account_iam_member" "dex_directory" {
 }
 
 # The generated client secrets. Ephemeral: re-opened every run, persisted
-# nowhere; the write-only versions below only consume a fresh result when
-# their rotation number (sso.clients[*].version) moves.
+# nowhere; the write-only consumers (the versions below, the workforce
+# provider in kubectl.tf) only consume a fresh result when their rotation
+# number (sso.clients[*].version) moves -- and since one counter drives
+# every consumer of a client, a bump rewrites them all in the same apply.
 ephemeral "random_password" "dex_client" {
   for_each = local.dex_client_readers
 
@@ -129,7 +164,7 @@ resource "google_secret_manager_secret_version" "dex_client" {
 
   secret                 = each.value.id
   secret_data_wo         = ephemeral.random_password.dex_client[each.key].result
-  secret_data_wo_version = try(var.sso.clients[each.key].version, 1)
+  secret_data_wo_version = local.dex_clients[each.key].version
 
   # Immediate destruction on delete/rotation -- these are regenerated
   # internal values; nothing to recover, and a lingering disabled version
@@ -153,8 +188,8 @@ resource "google_secret_manager_secret_iam_member" "dex_client_reader" {
 }
 
 # The Flux status web UI's Web Config API document, client secret embedded.
-# Synced to flux-system/flux-web-auth (the manifests contract's fixed name,
-# wired to the operator in flux.tf) by the manifests' flux-web component
+# Synced to flux-system/flux-web-auth (the platform contract's fixed name,
+# wired to the operator in flux.tf) by the platform's flux-web component
 # and hot-reloaded by flux-operator.
 resource "google_secret_manager_secret" "flux_web_auth_config" {
   count = contains(keys(local.dex_client_readers), "flux-web") ? 1 : 0
@@ -178,12 +213,12 @@ resource "google_secret_manager_secret_version" "flux_web_auth_config" {
     apiVersion = "web.fluxcd.controlplane.io/v1"
     kind       = "Config"
     spec = {
-      baseURL = "https://flux.${local.patchy_domain}"
+      baseURL = "https://flux.${local.platform_domain}"
       authentication = {
         type = "OAuth2"
         oauth2 = {
           provider     = "OIDC"
-          issuerURL    = "https://dex.${local.patchy_domain}"
+          issuerURL    = "https://dex.${local.platform_domain}"
           clientID     = "flux-web"
           clientSecret = ephemeral.random_password.dex_client["flux-web"].result
 
@@ -202,7 +237,7 @@ resource "google_secret_manager_secret_version" "flux_web_auth_config" {
       }
     }
   })
-  secret_data_wo_version = try(var.sso.clients["flux-web"].version, 1)
+  secret_data_wo_version = local.dex_clients["flux-web"].version
 }
 
 resource "google_secret_manager_secret_iam_member" "flux_web_auth_config_reader" {
@@ -212,44 +247,4 @@ resource "google_secret_manager_secret_iam_member" "flux_web_auth_config_reader"
   secret_id = google_secret_manager_secret.flux_web_auth_config[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "${local.wi_principal_prefix}/ns/flux-system/sa/flux-web-secrets"
-}
-
-# The patchy status server's auth config document: secretless
-# (clientSecretFile points at the client-secret key the SecretSync places
-# beside it), so a plain version keeps it visible in plan.
-resource "google_secret_manager_secret" "patchy_status_auth_config" {
-  count = contains(keys(local.dex_client_readers), "patchy-status") ? 1 : 0
-
-  project   = var.project
-  secret_id = "${local.secret_prefix}patchy-status-auth-config"
-
-  replication {
-    auto {}
-  }
-}
-
-resource "google_secret_manager_secret_version" "patchy_status_auth_config" {
-  count = length(google_secret_manager_secret.patchy_status_auth_config)
-
-  secret = google_secret_manager_secret.patchy_status_auth_config[0].id
-
-  deletion_policy = "DELETE"
-
-  secret_data = yamlencode({
-    mode = "oidc"
-    oidc = {
-      issuerURL        = "https://dex.${local.patchy_domain}"
-      clientID         = "patchy-status"
-      clientSecretFile = "/etc/patchy/auth/client-secret"
-    }
-  })
-}
-
-resource "google_secret_manager_secret_iam_member" "patchy_status_auth_config_reader" {
-  count = length(google_secret_manager_secret.patchy_status_auth_config)
-
-  project   = var.project
-  secret_id = google_secret_manager_secret.patchy_status_auth_config[0].secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "${local.wi_principal_prefix}/ns/patchy/sa/patchy-secrets"
 }

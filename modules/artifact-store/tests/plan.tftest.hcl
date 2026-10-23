@@ -20,6 +20,11 @@ run "repository" {
   command = plan
 
   assert {
+    condition     = endswith(output.manifest_artifact_url, "/platform/manifests/platform") && startswith(output.manifest_artifact_url, "oci://")
+    error_message = "the clusters sync the platform entrypoint image at manifests/platform (flux-manifests 4.x), not the old flux-manifests artifact"
+  }
+
+  assert {
     condition     = google_artifact_registry_repository.platform.format == "DOCKER"
     error_message = "platform repository must be a docker repository"
   }

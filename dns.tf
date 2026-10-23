@@ -19,7 +19,8 @@ locals {
   # Zone apex without the trailing dot (patchy.bitwisemedia.co.uk.).
   dns_domain = var.dns.zone_name != null ? trimsuffix(data.google_dns_managed_zone.cluster["true"].dns_name, ".") : null
 
-  # The public host the patchy webhook is served on: the zone apex unless the
-  # caller narrows it to a sub-host.
-  patchy_domain = var.dns.zone_name != null ? coalesce(var.dns.host, local.dns_domain) : null
+  # The served host the platform's own hosts (dex.<domain>, flux.<domain>)
+  # hang off, published as PLATFORM_DOMAIN: the zone apex unless the caller
+  # narrows it to a sub-host.
+  platform_domain = var.dns.zone_name != null ? coalesce(var.dns.host, local.dns_domain) : null
 }

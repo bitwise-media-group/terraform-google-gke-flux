@@ -1,0 +1,10 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: v2
+name: inputs
+description: >-
+  Terraform-reconciled inputs of one application published from its own root:
+  the <name>-vars ConfigMap its Kustomization substitutes from beside
+  cluster-vars, and the namespaces pre-created ahead of its first reconcile.
+type: application
+version: 0.1.0

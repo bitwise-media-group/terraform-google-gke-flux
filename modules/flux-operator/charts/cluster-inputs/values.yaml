@@ -5,7 +5,11 @@
 # from the cluster's reserved vars merged over caller extras.
 clusterVars: {}
 
-# Namespaces pre-created ahead of the flux stack (adopted by kustomizations
+# Per-application substitution values: one <key>-vars ConfigMap per entry,
+# read by the application's Kustomization beside cluster-vars.
+applicationVars: {}
+
+# Namespaces pre-created ahead of the platform (adopted by kustomizations
 # via server-side apply).
 namespaces: []
 

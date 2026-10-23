@@ -6,7 +6,7 @@ metadata:
   name: cluster-vars
   namespace: {{ .Release.Namespace }}
   labels:
-    patchy.internal/input: cluster-vars
+    platform.internal/input: cluster-vars
 data:
   {{- range $key, $value := .Values.clusterVars }}
   {{ $key }}: {{ $value | quote }}

@@ -138,8 +138,9 @@ resource "google_container_cluster" "main" {
     }
   }
 
-  # The GKE Gateway controller (gke-l7-* GatewayClasses) — HTTPS for the
-  # patchy webhook rides on a Gateway, so this is load-bearing.
+  # The GKE Gateway controller (gke-l7-* GatewayClasses) — every
+  # human-facing and webhook HTTPS route rides on a Gateway, so this is
+  # load-bearing.
   gateway_api_config {
     channel = "CHANNEL_STANDARD"
   }
@@ -233,7 +234,8 @@ resource "google_container_cluster" "main" {
     scope = var.managed_opentelemetry ? "COLLECTION_AND_INSTRUMENTATION_COMPONENTS" : "NONE"
   }
 
-  # Secret Manager -> Kubernetes secret sync (patchy's credentials). Both
+  # Secret Manager -> Kubernetes secret sync (dex, flux-web and application
+  # credentials). Both
   # blocks always declared with an explicit disable, same reasoning as
   # managed_opentelemetry_config: flipping the toggle off actually turns the
   # feature down instead of orphaning it outside terraform's view.

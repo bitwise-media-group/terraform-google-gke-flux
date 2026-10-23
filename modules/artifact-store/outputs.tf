@@ -22,8 +22,8 @@ output "image_repository_prefix" {
 }
 
 output "manifest_artifact_url" {
-  description = "OCI url of the flux-manifests artifact the clusters sync."
-  value       = "oci://${var.location}-docker.pkg.dev/${var.project}/${google_artifact_registry_repository.platform.repository_id}/flux-manifests"
+  description = "OCI url of the platform entrypoint image the clusters sync (manifests/platform; the components and applications it seeds sit beside it under manifests/<name>)."
+  value       = "oci://${var.location}-docker.pkg.dev/${var.project}/${google_artifact_registry_repository.platform.repository_id}/manifests/platform"
 }
 
 output "workload_identity_provider" {

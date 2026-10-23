@@ -6,7 +6,12 @@
 #
 #   charts/<name>            helm charts mirrored by flux-containers
 #   images/<original-path>   digest-pinned container images mirrored by flux-containers
-#   flux-manifests           the signed OCI manifests artifact synced by FluxInstance
+#   manifests/platform       the signed platform entrypoint image synced by
+#                            FluxInstance (flux-manifests publishes it)
+#   manifests/<name>         the signed per-component and per-application
+#                            manifest images (manifests/<component> from
+#                            flux-manifests, manifests/<app> from each
+#                            application's own repository)
 #
 # Artifact Registry allows arbitrary slash-separated paths beneath a single
 # docker repository, so unlike ECR no per-path repository creation is needed:
@@ -25,7 +30,7 @@ resource "google_artifact_registry_repository" "platform" {
   location      = var.location
   repository_id = var.repository_id
   format        = "DOCKER"
-  description   = "Platform artifact store: mirrored charts + images and the signed flux-manifests artifact"
+  description   = "Platform artifact store: mirrored charts + images and the signed manifest images"
 
   # Channel tags (staging/stable) on the manifests artifact must move between
   # releases, and tag immutability is repository-wide, so it stays off. Version

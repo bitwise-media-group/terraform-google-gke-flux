@@ -19,3 +19,13 @@ output "gateway" {
   description = "The reserved Gateway address — stable across cluster recreation."
   value       = module.cluster.gateway
 }
+
+output "kubectl_oidc" {
+  description = "kubectl through dex (null unless sso.kubectl.enabled): the workforce pool/provider, the group principal-set prefix for rbac.groups and the login steps."
+  value       = module.cluster.kubectl_oidc
+}
+
+output "application_target" {
+  description = "What a second root publishes an application to this cluster with (examples/application's cluster input)."
+  value       = module.cluster.application_target
+}

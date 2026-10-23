@@ -1,0 +1,14 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+{{- /* Created here so the application's namespaces (and any out-of-band
+       secrets they receive) exist before Flux deploys into them; the image's
+       kustomizations adopt them via server-side apply. */}}
+{{- range .Values.namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ . }}
+  labels:
+    app.kubernetes.io/managed-by: {{ printf "application-%s" (required "name is required" $.Values.name) }}
+{{- end }}

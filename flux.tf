@@ -2,11 +2,19 @@
 # SPDX-License-Identifier: MIT
 
 # The terraform -> flux contract. reserved_cluster_vars is every value this
-# cluster publishes to the flux-manifests stack (the cluster-vars ConfigMap,
-# substituted into each Kustomization via postBuild.substituteFrom) — the
+# cluster publishes to the platform manifests (the cluster-vars ConfigMap,
+# substituted into each Kustomization via postBuild.substituteFrom) -- the
 # authoritative table lives in the flux-manifests README. Optional surfaces
 # use the empty-string convention so substitution never fails on an absent
-# value; manifests guard on empties.
+# value; manifests guard on empties. Applications may read any of these too,
+# but nothing application-specific is published here: an application's own
+# values ride in its <key>-vars ConfigMap (var.application_vars).
+#
+# The keys are deliberately cloud-neutral wherever the meaning is shared
+# (CLUSTER_NAME, SIGNED_IDENTITY_*, PLATFORM_COMPONENTS, RBAC_GROUP_*, ...);
+# the manifests are per-cloud trees (flux.sync.path selects "google"), so
+# google-only facts publish as GCP-prefixed or google-shaped keys and nothing
+# branches on a cloud var.
 
 locals {
   # Which cosign mode verifies the platform artifacts: keyless (Fulcio
@@ -21,14 +29,46 @@ locals {
 
   default_charts_repository     = "oci://${var.platform_registry}/charts"
   default_distribution_registry = "${local.container_registry}/images/ghcr.io/fluxcd"
-  default_sync_url              = "oci://${var.platform_registry}/flux-manifests"
 
-  # The claude runner's model-provider config, consumed by the patchy
-  # egress-broker (the in-cluster proxy every claude-runner's model traffic
-  # terminates at).
-  claude_provider = var.patchy.claude.provider
+  # The platform entrypoint image: one small artifact whose ResourceSet
+  # ranges over PLATFORM_COMPONENTS and emits an OCIRepository +
+  # Kustomization per component (oci://<registry>/manifests/<name>). The
+  # FluxInstance's single sync points here.
+  default_sync_url = "oci://${var.platform_registry}/manifests/platform"
+  sync_url         = coalesce(var.flux.sync.url, local.default_sync_url)
 
-  # Values every cluster publishes to flux-manifests, merged OVER any
+  # The electable tier in force, dex riding the sso toggle rather than the
+  # component set.
+  platform_components = sort(setunion(var.platform_components, var.sso.enabled ? ["dex"] : []))
+
+  # The application seeds. Defaults that depend on cluster-level facts are
+  # resolved here (the keyless issuer onto the platform's, the path onto the
+  # per-cloud tree the platform itself syncs); the registry decides how the
+  # image is listed and pulled: under the platform prefix the flux
+  # controllers' Workload Identity reaches it through the Artifact Registry
+  # API, anywhere else the generic OCI listing (and an optional pull secret)
+  # does.
+  applications = {
+    for key, app in var.applications : key => {
+      url        = app.url
+      platform   = startswith(app.url, "oci://${var.platform_registry}/")
+      semver     = app.semver
+      path       = coalesce(app.path, "./deploy/${var.flux.sync.path}")
+      interval   = app.interval
+      depends_on = app.depends_on
+      verify = {
+        keyed   = app.verify.keyed
+        issuer  = app.verify.keyed ? null : coalesce(app.verify.issuer, var.signed_identity.issuer)
+        subject = app.verify.subject
+      }
+      pull_secret = app.pull_secret
+      prune       = app.prune
+      wait        = app.wait
+      timeout     = app.timeout
+    }
+  }
+
+  # Values every cluster publishes to the platform, merged OVER any
   # caller-provided extras (reserved keys always win).
   reserved_cluster_vars = merge({
     CLUSTER_NAME       = var.name
@@ -59,18 +99,25 @@ locals {
     # secret machinery. Public material — safe in a ConfigMap.
     COSIGN_PUBLIC_KEY = local.signing_kms ? base64encode(data.google_kms_crypto_key_latest_version.signing["true"].public_key[0].pem) : ""
 
-    # The stack's flux component (flux managing flux) re-renders the
-    # FluxInstance this module bootstraps: it needs the manifests-artifact
-    # signing subject for the sync verify patch, and the release channel for
-    # sync.ref -- both otherwise trapped inside this module's helm values.
+    # The platform's flux component (flux managing flux) re-renders the
+    # FluxInstance this module bootstraps: it needs the manifests signing
+    # subject for the sync verify patch, the release channel for sync.ref
+    # (and for every component source the entrypoint emits), the sync url
+    # and the per-cloud tree -- all otherwise trapped inside this module's
+    # bootstrap-only helm values. Publishing FLUX_SYNC_URL is what lets a
+    # running cluster be re-pointed: the flux component asserts it on the
+    # FluxInstance, so a changed var moves the sync without a kubectl patch.
     SIGNED_IDENTITY_MANIFESTS = local.signing_kms ? "" : var.signed_identity.manifests_subject
     FLUX_SYNC_CHANNEL         = var.flux.sync.ref
+    FLUX_SYNC_URL             = local.sync_url
+    PLATFORM_TREE             = var.flux.sync.path
 
-    # DNS/TLS surface (empty when var.dns.zone_name is unset).
-    DNS_ZONE_NAME = var.dns.zone_name != null ? var.dns.zone_name : ""
-    DNS_DOMAIN    = var.dns.zone_name != null ? local.dns_domain : ""
-    PATCHY_DOMAIN = var.dns.zone_name != null ? local.patchy_domain : ""
-    ACME_EMAIL    = var.dns.acme_email != null ? var.dns.acme_email : ""
+    # DNS/TLS surface (empty when var.dns.zone_name is unset). PLATFORM_DOMAIN
+    # is the served host the platform's own hosts (dex., flux.) hang off.
+    DNS_ZONE_NAME   = var.dns.zone_name != null ? var.dns.zone_name : ""
+    DNS_DOMAIN      = var.dns.zone_name != null ? local.dns_domain : ""
+    PLATFORM_DOMAIN = var.dns.zone_name != null ? local.platform_domain : ""
+    ACME_EMAIL      = var.dns.acme_email != null ? var.dns.acme_email : ""
 
     # Reserved Gateway address (empty when reservation is off).
     GATEWAY_ADDRESS_NAME = local.gateway_address_name
@@ -85,27 +132,13 @@ locals {
     # convention when unset).
     SECRET_PREFIX = local.secret_prefix
 
-    # The optional-tier election, dex riding the sso toggle rather than the
-    # component set. A fully-empty election publishes the reserved name
-    # "none" -- a short name matching no component -- because an empty
-    # string would re-trigger the manifests' elect-everything := default.
-    STACK_COMPONENTS = coalesce(
-      join(",", sort(setunion(var.stack_components, var.sso.enabled ? ["dex"] : []))),
-      "none",
-    )
-
-    # The agent-harness election, gating the patchy chart's runners and the
-    # harness credential syncs (resourceset-secrets.yaml); modules/secrets
-    # creates the matching containers from the same value. Same reserved
-    # name "none" convention as STACK_COMPONENTS: an empty string would
-    # re-trigger the manifests' claude := default.
-    AGENT_HARNESSES = coalesce(join(",", sort(var.patchy.harnesses)), "none")
-
-    # The evaluation-controller toggle. "true"/"false" rather than the
-    # empty-string convention: it is a boolean, not an optional value, and
-    # the manifests' := default ("false") covers a terraform predating the
-    # key -- so publishing the literal keeps the two sides symmetric.
-    PATCHY_EVALUATION = var.patchy.evaluation.enabled ? "true" : "false"
+    # The electable-tier election, dex riding the sso toggle rather than the
+    # component set. The platform entrypoint's ResourceSet ranges over this
+    # list (the list IS the component graph's election). A fully-empty
+    # election publishes the reserved name "none" -- a short name matching no
+    # component -- because an empty string would re-trigger the manifests'
+    # elect-everything := default.
+    PLATFORM_COMPONENTS = coalesce(join(",", local.platform_components), "none")
 
     # Arbitrary SSO federation: the non-secret half of each connector,
     # JSON-encoded since a cluster var is a flat string. Defaults to "[]"
@@ -122,28 +155,30 @@ locals {
     # iam.gke.io/gcp-service-account annotation.
     DEX_DIRECTORY_SA = var.sso.enabled && var.sso.directory_sa != null ? var.sso.directory_sa : ""
 
-    # The claude runner's model provider for the patchy egress-broker.
-    # Harness-scoped names (CLAUDE_*): the provider belongs to the claude
-    # runner alone — a future codex/copilot surface adds CODEX_* siblings —
-    # and the knobs are provider-prefixed (VERTEX_REGION, not a generic
-    # REGION), mirroring the broker's own PATCHY_VERTEX_* env names; clarity
-    # over brevity. Only the google provider pair is published: the
-    # manifests' google tree never reads the bedrock vars, and the common
-    # patchy core carries := defaults for them. The vertex vars default onto
-    # the cluster's own region/project, and the model map publishes as
-    # sorted comma-joined canonical=providerID pairs (empty-string
-    # convention throughout).
-    CLAUDE_PROVIDER          = local.claude_provider.name
-    CLAUDE_ANTHROPIC_AUTH    = local.claude_provider.anthropic_auth
-    CLAUDE_VERTEX_REGION     = local.claude_provider.name == "vertex" ? coalesce(local.claude_provider.vertex_region, local.region) : ""
-    CLAUDE_VERTEX_PROJECT_ID = local.claude_provider.name == "vertex" ? coalesce(local.claude_provider.vertex_project_id, var.project) : ""
-    CLAUDE_MODEL_MAP         = join(",", [for k in sort(keys(local.claude_provider.model_map)) : "${k}=${local.claude_provider.model_map[k]}"])
+    # The platform's own OIDC relying parties: the flux-web client (when
+    # elected) and the confidential workforce identity client (sso.kubectl,
+    # the authorization-code flow Google's workforce sign-in drives),
+    # JSON-encoded like DEX_CONNECTORS and for the same reason. Application
+    # clients are DexClient objects, registered by the platform's
+    # dex-client-controller, and never appear here. The dex component renders
+    # staticClients from it and syncs ${SECRET_PREFIX}dex-client-<id> for
+    # every confidential client; the containers are minted from the same
+    # local (sso.tf), so the ids cannot drift.
+    DEX_CLIENTS = var.sso.enabled ? jsonencode([
+      for id, c in local.dex_clients : {
+        id           = id
+        name         = c.name
+        public       = c.public
+        redirectURIs = c.redirect_uris
+      }
+    ]) : "[]"
     },
-    # The GKE RBAC subject groups, one var per role key in rbac.groups
+    # The RBAC subject groups, one var per role key in rbac.groups
     # (RBAC_GROUP_VIEWERS, RBAC_GROUP_DEVELOPERS, RBAC_GROUP_DEVOPS,
-    # RBAC_GROUP_ADMINS) — the
-    # manifests bind Role/ClusterRoleBindings on them; empty when the role
-    # is unbound or RBAC is off.
+    # RBAC_GROUP_ADMINS) -- the manifests bind Role/ClusterRoleBindings on
+    # them; empty when the role is unbound. Published as given: a Google
+    # Group email or a workforce principalSet, the manifests never see the
+    # subject type behind them.
     {
       for role, group in var.rbac.groups :
       "RBAC_GROUP_${upper(role)}" => group != null ? group : ""
@@ -183,11 +218,14 @@ module "flux_operator" {
     artifact = var.flux.distribution.artifact
   }
   sync = {
-    url      = coalesce(var.flux.sync.url, local.default_sync_url)
+    url      = local.sync_url
     ref      = var.flux.sync.ref
     path     = var.flux.sync.path
     interval = var.flux.sync.interval
   }
+
+  applications     = local.applications
+  application_vars = var.application_vars
 
   signed_identity = {
     issuer             = local.signing_kms ? null : var.signed_identity.issuer
@@ -199,9 +237,9 @@ module "flux_operator" {
   cluster_vars      = merge(var.flux.cluster_vars, local.reserved_cluster_vars)
   namespaces        = var.flux.namespaces
 
-  # The manifests contract's fixed name for the Flux status web UI's Web
+  # The platform contract's fixed name for the Flux status web UI's Web
   # Config Secret: composed in sso.tf, synced to flux-system by the
-  # manifests' flux-web component, hot-reloaded by the operator (it may
+  # platform's flux-web component, hot-reloaded by the operator (it may
   # arrive after bootstrap, or never on an SSO-less cluster -- harmless).
   web_config_secret_name = "flux-web-auth"
 

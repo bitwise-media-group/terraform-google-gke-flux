@@ -1,0 +1,50 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The application's short name: the seed objects are <name>-manifests and the
+# Kustomization is <name>. Fixed contract with the image's own flux/ copy.
+name: ""
+
+# The image, without a tag or digest (oci://<host>/<repository>).
+url: ""
+
+# The tag range the input provider follows; the newest matching tag wins. A
+# range matching no tag empties the ResourceSet and prunes the application.
+semver: ">=0.0.0"
+
+# How often the input provider re-lists tags and the Kustomization reconciles.
+interval: 30m
+
+# ResourceSetInputProvider type: GARArtifactTag under the platform registry
+# (the flux-operator's Workload Identity lists tags through the Artifact
+# Registry API), OCIArtifactTag anywhere else (generic registry listing).
+tagProvider: GARArtifactTag
+
+# OCIRepository provider: gcp under the platform registry (Workload Identity
+# credentials from the GKE metadata server), generic elsewhere.
+ociProvider: gcp
+
+# A kubernetes.io/dockerconfigjson Secret in the release namespace both the
+# tag listing and the pull read, for registries that need credentials. Empty
+# for the platform registry (Workload Identity) and public registries.
+pullSecret: ""
+
+# Kustomization path inside the image (the per-cloud tree).
+path: ./deploy/google
+
+# Kustomization knobs.
+timeout: 5m
+prune: true
+wait: true
+
+# Platform Kustomizations the application waits for.
+dependsOn:
+  - kyverno-policies
+
+# Cosign verification of the image. keyed reads the cosign-pub public-key
+# Secret the bootstrap distributes in KMS mode; otherwise issuer + subject are
+# Go regexps matched against the Fulcio certificate of the signature.
+verify:
+  keyed: false
+  issuer: ""
+  subject: ""

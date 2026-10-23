@@ -4,7 +4,8 @@
 # Plan-time contract tests with mocked providers: no credentials, no API
 # calls. These assert the cluster shape (shared-VPC wiring, Dataplane V2,
 # Workload Identity, Gateway API, NAP) and the terraform -> flux contract
-# (workload identity grants, cluster vars).
+# (workload identity grants, cluster vars, application seeds, kubectl via
+# workforce identity).
 
 mock_provider "google" {
   mock_data "google_project" {
@@ -369,22 +370,12 @@ run "gateway_existing_address" {
   }
 }
 
-run "stack_contract_defaults" {
+run "cluster_vars_contract" {
   command = plan
 
   assert {
     condition     = output.flux.cluster_vars.SECRET_PREFIX == ""
     error_message = "the default must publish an empty SECRET_PREFIX (unprefixed container names)"
-  }
-
-  assert {
-    condition     = output.flux.cluster_vars.STACK_COMPONENTS == "flux-web,patchy"
-    error_message = "the default election must publish the whole optional tier explicitly -- without dex, which rides the sso toggle"
-  }
-
-  assert {
-    condition     = output.flux.cluster_vars.AGENT_HARNESSES == "claude"
-    error_message = "the default harness election must publish claude alone"
   }
 
   assert {
@@ -423,31 +414,64 @@ run "stack_contract_defaults" {
   }
 
   assert {
-    condition     = output.flux.cluster_vars.CLAUDE_PROVIDER == "anthropic"
-    error_message = "the claude provider must default to anthropic (the egress-broker's default upstream)"
+    condition     = output.flux.cluster_vars.DEX_CLIENTS == "[]"
+    error_message = "without sso, DEX_CLIENTS must publish the empty JSON array (the manifests unconditionally mustFromJson-parse it)"
   }
 
   assert {
-    condition     = output.flux.cluster_vars.CLAUDE_ANTHROPIC_AUTH == "token"
-    error_message = "anthropic auth must default to token"
+    condition     = output.flux.cluster_vars.PLATFORM_COMPONENTS == "flux-web"
+    error_message = "the default election is flux-web alone, comma-joined and sorted (arc is opt-in, dex rides sso)"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.PLATFORM_TREE == "google"
+    error_message = "PLATFORM_TREE must publish flux.sync.path, so applications select the same per-cloud tree the platform syncs"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.FLUX_SYNC_URL == "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/platform" && output.flux.sync_url == output.flux.cluster_vars.FLUX_SYNC_URL
+    error_message = "the sync must default to the platform entrypoint image under the platform registry, and publish it so the flux component can re-point a running cluster"
   }
 
   assert {
     condition = alltrue([
-      for key in ["CLAUDE_VERTEX_REGION", "CLAUDE_VERTEX_PROJECT_ID", "CLAUDE_MODEL_MAP"] :
+      for key in ["DNS_ZONE_NAME", "DNS_DOMAIN", "PLATFORM_DOMAIN", "ACME_EMAIL"] :
       output.flux.cluster_vars[key] == ""
     ])
-    error_message = "every non-anthropic provider var must publish empty by default (empty-string convention; the bedrock vars are never published -- the manifests' google tree never reads them)"
+    error_message = "unset optional surfaces must publish empty strings, not null"
+  }
+
+  # Every google-specific key the google tree reads.
+  assert {
+    condition = (
+      output.flux.cluster_vars.GCP_PROJECT == "x-patchy-app-ab12"
+      && output.flux.cluster_vars.GCP_PROJECT_NUMBER == "123456789012"
+      && output.flux.cluster_vars.GCP_REGION == "us-central1"
+      && output.flux.cluster_vars.OTEL_PROJECT == "x-patchy-app-ab12"
+      && output.flux.cluster_vars.GATEWAY_ADDRESS_NAME == "patchy-x-gateway"
+    )
+    error_message = "the google-specific keys (GCP_*, OTEL_PROJECT, GATEWAY_*) must keep publishing"
+  }
+
+  # The manifests default these on google (gcp / GARArtifactTag); publishing
+  # them would only add a second source of truth.
+  assert {
+    condition     = !contains(keys(output.flux.cluster_vars), "OCI_PROVIDER") && !contains(keys(output.flux.cluster_vars), "ARTIFACT_TAG_PROVIDER") && !contains(keys(output.flux.cluster_vars), "CLOUD")
+    error_message = "OCI_PROVIDER / ARTIFACT_TAG_PROVIDER are left to the google tree's defaults, and nothing may publish a CLOUD var"
+  }
+
+  # The generic-module guard: nothing application-specific may be published.
+  assert {
+    condition = length([
+      for key in keys(local.reserved_cluster_vars) : key
+      if key == "STACK_COMPONENTS" || startswith(key, "PATCHY_") || startswith(key, "CLAUDE_") || startswith(key, "AGENT_")
+    ]) == 0
+    error_message = "the cluster module knows no application: no STACK_COMPONENTS, PATCHY_*, CLAUDE_* or AGENT_* key may be published (application vars ride in <key>-vars)"
   }
 
   assert {
-    condition     = !contains(keys(google_project_iam_member.workload), "patchy-egress-broker:roles/aiplatform.user")
-    error_message = "the anthropic provider must grant the egress-broker no Vertex AI access"
-  }
-
-  assert {
-    condition     = output.flux.cluster_vars.PATCHY_EVALUATION == "false"
-    error_message = "the evaluation controller must default off, published as the literal \"false\" (not the empty string -- it is a boolean toggle, and the manifests' := default matches)"
+    condition     = length(module.flux_operator.applications) == 0 && length(output.flux.applications) == 0
+    error_message = "a cluster with no applications seeds nothing - the platform alone is a complete deployment"
   }
 }
 
@@ -492,79 +516,6 @@ run "stack_contract_kms_signing" {
   }
 }
 
-run "agent_harness_election" {
-  command = plan
-
-  variables {
-    patchy = {
-      harnesses = ["copilot", "claude"]
-    }
-  }
-
-  assert {
-    condition     = output.flux.cluster_vars.AGENT_HARNESSES == "claude,copilot"
-    error_message = "the harness election must publish sorted and comma-joined, like STACK_COMPONENTS"
-  }
-}
-
-run "agent_harness_election_empty" {
-  command = plan
-
-  variables {
-    patchy = {
-      harnesses = []
-    }
-  }
-
-  assert {
-    condition     = output.flux.cluster_vars.AGENT_HARNESSES == "none"
-    error_message = "an empty election must publish the reserved name none -- an empty string would re-trigger the manifests' claude := default"
-  }
-}
-
-run "claude_provider_vertex" {
-  command = plan
-
-  variables {
-    patchy = {
-      claude = {
-        provider = {
-          name = "vertex"
-          model_map = {
-            "anthropic/claude-opus-5"   = "claude-opus-5"
-            "anthropic/claude-sonnet-5" = "claude-sonnet-5"
-          }
-        }
-      }
-    }
-  }
-
-  assert {
-    condition     = output.flux.cluster_vars.CLAUDE_VERTEX_REGION == "us-central1"
-    error_message = "the vertex region must default onto the cluster's own region"
-  }
-
-  assert {
-    condition     = output.flux.cluster_vars.CLAUDE_VERTEX_PROJECT_ID == "x-patchy-app-ab12"
-    error_message = "the vertex project must default onto the cluster's own project"
-  }
-
-  assert {
-    condition     = output.flux.cluster_vars.CLAUDE_MODEL_MAP == "anthropic/claude-opus-5=claude-opus-5,anthropic/claude-sonnet-5=claude-sonnet-5"
-    error_message = "the model map must publish as comma-joined sorted canonical=providerID pairs"
-  }
-
-  assert {
-    condition     = google_project_iam_member.workload["patchy-egress-broker:roles/aiplatform.user"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/patchy/sa/patchy-egress-broker"
-    error_message = "the egress-broker must get aiplatform.user as a direct federated principal"
-  }
-
-  assert {
-    condition     = google_project_iam_member.workload["patchy-egress-broker:roles/aiplatform.user"].project == "x-patchy-app-ab12"
-    error_message = "the vertex grant must land in the serving project (the cluster's own by default)"
-  }
-}
-
 run "signed_identity_modes_exclusive" {
   command = plan
 
@@ -589,15 +540,15 @@ run "signed_identity_needs_a_mode" {
   expect_failures = [var.signed_identity]
 }
 
-run "stack_contract_nothing_elected" {
+run "empty_election_publishes_none" {
   command = plan
 
   variables {
-    stack_components = []
+    platform_components = []
   }
 
   assert {
-    condition     = output.flux.cluster_vars.STACK_COMPONENTS == "none"
+    condition     = output.flux.cluster_vars.PLATFORM_COMPONENTS == "none"
     error_message = "an explicitly-empty election must publish the reserved name 'none' -- an empty string would re-default to elect-everything in the manifests"
   }
 
@@ -607,12 +558,34 @@ run "stack_contract_nothing_elected" {
   }
 }
 
-run "stack_contract_elected" {
+run "platform_components_reject_unknown" {
   command = plan
 
   variables {
-    secret_prefix    = "patchy-x-"
-    stack_components = ["patchy"]
+    platform_components = ["flux-web", "patchy"]
+  }
+
+  expect_failures = [var.platform_components]
+}
+
+run "arc_is_electable" {
+  command = plan
+
+  variables {
+    platform_components = ["arc", "flux-web"]
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.PLATFORM_COMPONENTS == "arc,flux-web" && output.flux.platform_components == tolist(["arc", "flux-web"])
+    error_message = "arc must be electable beside flux-web, published sorted and comma-joined"
+  }
+}
+
+run "platform_contract_elected" {
+  command = plan
+
+  variables {
+    secret_prefix = "patchy-x-"
     dns = {
       zone_name  = "patchy-bitwisemedia-co-uk"
       acme_email = "platform@bitwisemedia.co.uk"
@@ -636,8 +609,28 @@ run "stack_contract_elected" {
   }
 
   assert {
-    condition     = output.flux.cluster_vars.STACK_COMPONENTS == "dex,patchy"
+    condition     = output.flux.cluster_vars.PLATFORM_COMPONENTS == "dex,flux-web"
     error_message = "the election must publish as comma-separated short names, dex joining via the sso toggle"
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.PLATFORM_DOMAIN == "patchy.bitwisemedia.co.uk"
+    error_message = "PLATFORM_DOMAIN must publish the served host (the zone apex when dns.host is unset)"
+  }
+
+  assert {
+    condition = jsondecode(output.flux.cluster_vars.DEX_CLIENTS) == [{
+      id           = "flux-web"
+      name         = "Flux Status"
+      public       = false
+      redirectURIs = ["https://flux.patchy.bitwisemedia.co.uk/oauth2/callback"]
+    }]
+    error_message = "DEX_CLIENTS must publish the elected flux-web client as a confidential static client on the served domain"
+  }
+
+  assert {
+    condition     = output.sso.issuer_url == "https://dex.patchy.bitwisemedia.co.uk" && output.sso.client_secrets["flux-web"] == "patchy-x-dex-client-flux-web"
+    error_message = "the sso output must carry the issuer and the generated client container names"
   }
 
   assert {
@@ -705,43 +698,6 @@ run "sso_requires_connector" {
   }
 
   expect_failures = [var.sso]
-}
-
-run "evaluation_controller_election" {
-  command = plan
-
-  variables {
-    dns = {
-      zone_name  = "patchy-bitwisemedia-co-uk"
-      acme_email = "platform@bitwisemedia.co.uk"
-    }
-    sso = {
-      enabled = true
-      connector = {
-        type = "google"
-      }
-    }
-    patchy = {
-      evaluation = { enabled = true }
-    }
-  }
-
-  assert {
-    condition     = output.flux.cluster_vars.PATCHY_EVALUATION == "true"
-    error_message = "enabling the evaluation controller must publish PATCHY_EVALUATION as the literal \"true\""
-  }
-}
-
-run "evaluation_requires_sso" {
-  command = plan
-
-  variables {
-    patchy = {
-      evaluation = { enabled = true }
-    }
-  }
-
-  expect_failures = [var.patchy]
 }
 
 run "sso_directory_sa_independently_optional" {
@@ -840,8 +796,8 @@ run "sso_client_pairs" {
   }
 
   assert {
-    condition     = tostring(google_secret_manager_secret_version.dex_client["patchy-status"].secret_data_wo_version) == "1"
-    error_message = "a client absent from sso.clients must sit at version 1"
+    condition     = join(",", keys(google_secret_manager_secret_iam_member.dex_client_reader)) == "flux-web/ns/dex/sa/dex-secrets"
+    error_message = "dex alone reads the raw client secret; flux-web's consumer reads the composed config document"
   }
 
   assert {
@@ -849,15 +805,6 @@ run "sso_client_pairs" {
     error_message = "the composed flux-web config container must carry the prefix too"
   }
 
-  assert {
-    condition     = google_secret_manager_secret_iam_member.dex_client_reader["patchy-status/ns/patchy/sa/patchy-secrets"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/patchy/sa/patchy-secrets"
-    error_message = "the patchy status server must read its client secret as a direct federated principal"
-  }
-
-  assert {
-    condition     = strcontains(google_secret_manager_secret_version.patchy_status_auth_config[0].secret_data, "https://dex.patchy.bitwisemedia.co.uk")
-    error_message = "the status auth document must point at the platform dex on the served domain"
-  }
 }
 
 run "sso_follows_election" {
@@ -873,11 +820,11 @@ run "sso_follows_election" {
       directory_sa = "dex-directory@x-patchy-app-ab12.iam.gserviceaccount.com"
       connector    = { type = "google" }
     }
-    stack_components = ["patchy"]
+    platform_components = []
   }
 
   assert {
-    condition     = !contains(keys(google_secret_manager_secret.dex_client), "flux-web")
+    condition     = length(google_secret_manager_secret.dex_client) == 0
     error_message = "an unelected relying party must get no client secret"
   }
 
@@ -887,8 +834,8 @@ run "sso_follows_election" {
   }
 
   assert {
-    condition     = contains(keys(google_secret_manager_secret.dex_client), "patchy-status")
-    error_message = "elected relying parties keep their client pairs"
+    condition     = output.flux.cluster_vars.PLATFORM_COMPONENTS == "dex" && output.flux.cluster_vars.DEX_CLIENTS == "[]"
+    error_message = "dex still deploys on the sso toggle, with no platform clients to serve"
   }
 }
 
@@ -899,4 +846,496 @@ run "sso_disabled_no_pairs" {
     condition     = length(google_secret_manager_secret.dex_client) == 0
     error_message = "sso off (the default) must generate no client pairs"
   }
+}
+
+run "applications_seeded" {
+  command = plan
+
+  variables {
+    applications = {
+      demo = {
+        url        = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+        semver     = "<1.0.0 >=0.1.0"
+        depends_on = ["kyverno-policies", "gateway"]
+        verify     = { subject = "^https://github\\.com/org/demo-app-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$" }
+      }
+      external = {
+        url         = "oci://ghcr.io/org/external-manifests"
+        path        = "./deploy/gke"
+        verify      = { issuer = "^https://token\\.actions\\.githubusercontent\\.com$", subject = "^https://github\\.com/org/external/.+$" }
+        pull_secret = "ghcr-pull"
+      }
+    }
+  }
+
+  # The registry, never the cloud, picks the listing/pull dialect: under the
+  # platform prefix the flux controllers reach Artifact Registry with their
+  # Workload Identity; anywhere else is a generic OCI listing and pull.
+  assert {
+    condition     = output.flux.applications["demo"].tag_provider == "GARArtifactTag" && output.flux.applications["demo"].oci_provider == "gcp"
+    error_message = "an image under the platform registry must be listed with GARArtifactTag and pulled as provider gcp"
+  }
+
+  assert {
+    condition     = output.flux.applications["external"].tag_provider == "OCIArtifactTag" && output.flux.applications["external"].oci_provider == "generic"
+    error_message = "an image outside the platform registry must be listed with OCIArtifactTag and pulled as provider generic"
+  }
+
+  # Defaults resolve against cluster facts: the per-cloud tree the platform
+  # syncs, and the platform's own keyless issuer.
+  assert {
+    condition     = output.flux.applications["demo"].path == "./deploy/google" && output.flux.applications["external"].path == "./deploy/gke"
+    error_message = "path must default to ./deploy/<flux.sync.path> and pass through when set"
+  }
+
+  assert {
+    condition     = local.applications["demo"].verify.issuer == var.signed_identity.issuer && local.applications["external"].verify.issuer == "^https://token\\.actions\\.githubusercontent\\.com$"
+    error_message = "a keyless application's issuer must default to signed_identity.issuer and pass through when set"
+  }
+
+  assert {
+    condition     = output.flux.applications["demo"].release == "application-demo" && output.flux.applications["demo"].namespace == "flux-system"
+    error_message = "each application must seed one bootstrap-only release in flux-system"
+  }
+
+  assert {
+    condition     = output.flux.applications["demo"].url == "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+    error_message = "the flux output must carry each application's url"
+  }
+}
+
+run "applications_reject_unverified" {
+  command = plan
+
+  variables {
+    applications = {
+      demo = {
+        url    = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+        verify = {}
+      }
+    }
+  }
+
+  expect_failures = [var.applications]
+}
+
+run "applications_reject_keyed_without_kms" {
+  command = plan
+
+  variables {
+    applications = {
+      demo = {
+        url    = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+        verify = { keyed = true }
+      }
+    }
+  }
+
+  expect_failures = [var.applications]
+}
+
+run "applications_reject_foreign_artifact_registry" {
+  command = plan
+
+  variables {
+    applications = {
+      demo = {
+        url    = "oci://europe-west2-docker.pkg.dev/other-project/other/manifests/demo"
+        verify = { subject = "^https://github\\.com/org/demo/.+$" }
+      }
+    }
+  }
+
+  # The flux controllers hold read rights on the platform repository alone,
+  # so an Artifact Registry image anywhere else could never be listed or
+  # pulled.
+  expect_failures = [var.applications]
+}
+
+run "applications_reject_platform_names" {
+  command = plan
+
+  variables {
+    applications = {
+      kyverno = {
+        url    = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/kyverno"
+        verify = { subject = "^https://github\\.com/org/kyverno/.+$" }
+      }
+    }
+  }
+
+  expect_failures = [var.applications]
+}
+
+run "applications_reject_tagged_url" {
+  command = plan
+
+  variables {
+    applications = {
+      demo = {
+        url    = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo:1.2.3"
+        verify = { subject = "^https://github\\.com/org/demo/.+$" }
+      }
+    }
+  }
+
+  expect_failures = [var.applications]
+}
+
+run "application_vars_render" {
+  command = plan
+
+  variables {
+    application_vars = {
+      demo = {
+        DEMO_DOMAIN    = "demo.example.com"
+        DEMO_HARNESSES = "claude"
+      }
+    }
+  }
+
+  # The rendering itself (one <key>-vars ConfigMap per entry) is asserted in
+  # the flux-operator module's own suite; here the contract is separation.
+  assert {
+    condition     = !contains(keys(local.reserved_cluster_vars), "DEMO_DOMAIN") && !contains(keys(output.flux.cluster_vars), "DEMO_DOMAIN")
+    error_message = "application vars must never leak into cluster-vars"
+  }
+}
+
+run "application_vars_reject_lowercase_keys" {
+  command = plan
+
+  variables {
+    application_vars = {
+      demo = { demoDomain = "x" }
+    }
+  }
+
+  expect_failures = [var.application_vars]
+}
+
+run "workload_grants_become_members" {
+  command = plan
+
+  variables {
+    workload_grants = {
+      egress-broker = {
+        namespace       = "demo"
+        service_account = "egress-broker"
+        roles           = ["roles/aiplatform.user"]
+      }
+      exporter = {
+        namespace       = "demo"
+        service_account = "exporter"
+        roles           = ["roles/bigquery.dataEditor", "projects/o-data-ef56/roles/exportWriter"]
+        project         = "o-data-ef56"
+      }
+    }
+  }
+
+  assert {
+    condition     = google_project_iam_member.workload["egress-broker:roles/aiplatform.user"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/demo/sa/egress-broker"
+    error_message = "an application grant must bind its pair as a direct federated principal, exactly like the platform grants"
+  }
+
+  assert {
+    condition     = google_project_iam_member.workload["egress-broker:roles/aiplatform.user"].project == "x-patchy-app-ab12"
+    error_message = "a grant without a project lands in the cluster's own"
+  }
+
+  assert {
+    condition = (
+      google_project_iam_member.workload["exporter:roles/bigquery.dataEditor"].project == "o-data-ef56"
+      && google_project_iam_member.workload["exporter:projects/o-data-ef56/roles/exportWriter"].role == "projects/o-data-ef56/roles/exportWriter"
+    )
+    error_message = "each (grant, role) pair is one member binding, in the grant's own project when set"
+  }
+
+  assert {
+    condition     = output.workload_members["exporter"] == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/x-patchy-app-ab12.svc.id.goog/subject/ns/demo/sa/exporter"
+    error_message = "workload_members must name every grant's principal, for resource-side grants in the caller"
+  }
+
+  assert {
+    condition     = contains(keys(output.workload_members), "otel-collector")
+    error_message = "the platform grants are exported beside the application ones"
+  }
+}
+
+run "workload_grants_reject_platform_keys" {
+  command = plan
+
+  variables {
+    workload_grants = {
+      external-dns = { namespace = "x", service_account = "y", roles = ["roles/dns.admin"] }
+    }
+  }
+
+  expect_failures = [var.workload_grants]
+}
+
+run "workload_grants_reject_bare_roles" {
+  command = plan
+
+  variables {
+    workload_grants = {
+      broker = { namespace = "x", service_account = "y", roles = ["aiplatform.user"] }
+    }
+  }
+
+  expect_failures = [var.workload_grants]
+}
+
+# The contract modules/application reads to publish an application from a
+# root of its own: the same facts the cluster root resolves its own seeds
+# and workload grants from.
+run "application_target" {
+  command = plan
+
+  variables {
+    secret_prefix = "patchy-x-"
+  }
+
+  assert {
+    condition = (
+      output.application_target.namespace == "flux-system"
+      && output.application_target.platform_registry == var.platform_registry
+      && output.application_target.tree == "google"
+      && output.application_target.secret_prefix == "patchy-x-"
+      && output.secret_prefix == "patchy-x-"
+    )
+    error_message = "application_target must carry the flux namespace, platform registry, tree and secret prefix"
+  }
+
+  assert {
+    condition = (
+      output.application_target.project == "x-patchy-app-ab12"
+      && output.application_target.project_number == "123456789012"
+      && output.application_target.workload_pool == "x-patchy-app-ab12.svc.id.goog"
+    )
+    error_message = "application_target must carry the project, project number and pool its workload grants compose principals from"
+  }
+
+  assert {
+    condition     = output.application_target.keyed == false && output.application_target.issuer == var.signed_identity.issuer
+    error_message = "a keyless cluster hands applications its own issuer as the verify default"
+  }
+}
+
+run "application_target_keyed" {
+  command = plan
+
+  variables {
+    signed_identity = {
+      kms_key_name = "projects/o-foundation-7e43/locations/us-central1/keyRings/platform/cryptoKeys/cosign"
+    }
+  }
+
+  assert {
+    condition     = output.application_target.keyed == true && output.application_target.issuer == null
+    error_message = "a KMS-keyed cluster has no keyless issuer to hand on, only the keyed flag"
+  }
+}
+
+run "sso_kubectl_workforce" {
+  command = plan
+
+  variables {
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled   = true
+      connector = { type = "google" }
+      kubectl = {
+        enabled         = true
+        organization_id = "282673588123"
+      }
+      clients = {
+        gcp-workforce = { version = 2 }
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      google_iam_workforce_pool.dex["true"].parent == "organizations/282673588123"
+      && google_iam_workforce_pool.dex["true"].workforce_pool_id == "patchy-x-dex"
+      && google_iam_workforce_pool.dex["true"].location == "global"
+    )
+    error_message = "the workforce pool must default to <name>-dex under the given organization"
+  }
+
+  assert {
+    condition     = google_iam_workforce_pool_provider.dex["true"].oidc[0].issuer_uri == "https://dex.patchy.bitwisemedia.co.uk" && google_iam_workforce_pool_provider.dex["true"].oidc[0].client_id == "gcp-workforce"
+    error_message = "the workforce provider must trust dex on the served domain through the workforce client"
+  }
+
+  assert {
+    condition = (
+      google_iam_workforce_pool_provider.dex["true"].oidc[0].web_sso_config[0].response_type == "CODE"
+      && google_iam_workforce_pool_provider.dex["true"].oidc[0].web_sso_config[0].assertion_claims_behavior == "MERGE_USER_INFO_OVER_ID_TOKEN_CLAIMS"
+      && contains(google_iam_workforce_pool_provider.dex["true"].oidc[0].web_sso_config[0].additional_scopes, "groups")
+    )
+    error_message = "web sign-in must run the authorization-code flow, merge userinfo and ask dex for the groups scope"
+  }
+
+  assert {
+    condition     = google_iam_workforce_pool_provider.dex["true"].attribute_mapping["google.subject"] == "assertion.email" && google_iam_workforce_pool_provider.dex["true"].attribute_mapping["google.groups"] == "assertion.groups"
+    error_message = "the federated subject is the dex email and the groups its groups claim (what rbac.groups binds)"
+  }
+
+  # One rotation counter drives both halves of the pair.
+  assert {
+    condition     = google_iam_workforce_pool_provider.dex["true"].oidc[0].client_secret[0].value[0].plain_text_wo_version == "2" && tostring(google_secret_manager_secret_version.dex_client["gcp-workforce"].secret_data_wo_version) == "2"
+    error_message = "the workforce client's version must drive both the dex-client container and the provider's write-only secret"
+  }
+
+  assert {
+    condition = contains(jsondecode(output.flux.cluster_vars.DEX_CLIENTS), {
+      id           = "gcp-workforce"
+      name         = "Google Cloud"
+      public       = false
+      redirectURIs = ["https://auth.cloud.google/signin-callback/locations/global/workforcePools/patchy-x-dex/providers/dex-oidc"]
+    })
+    error_message = "DEX_CLIENTS must publish the workforce client as confidential, redirecting to Google's workforce sign-in callback"
+  }
+
+  assert {
+    condition     = google_secret_manager_secret.dex_client["gcp-workforce"].secret_id == "dex-client-gcp-workforce" && contains(keys(google_secret_manager_secret_iam_member.dex_client_reader), "gcp-workforce/ns/dex/sa/dex-secrets")
+    error_message = "the workforce client's secret must be minted like flux-web's and read by dex/dex-secrets"
+  }
+
+  assert {
+    condition     = google_project_iam_member.kubectl_cluster_viewer["true"].role == "roles/container.clusterViewer" && google_project_iam_member.kubectl_cluster_viewer["true"].member == "principalSet://iam.googleapis.com/locations/global/workforcePools/patchy-x-dex/*" && google_project_iam_member.kubectl_cluster_viewer["true"].project == "x-patchy-app-ab12"
+    error_message = "every pool principal must be able to get-credentials (clusterViewer); RBAC does the authorization"
+  }
+
+  assert {
+    condition     = output.kubectl_oidc.group_principal_prefix == "principalSet://iam.googleapis.com/locations/global/workforcePools/patchy-x-dex/group/" && length(output.kubectl_oidc.login) == 3
+    error_message = "kubectl_oidc must export the group principal prefix and the three login steps"
+  }
+}
+
+run "sso_kubectl_off_by_default" {
+  command = plan
+
+  variables {
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled   = true
+      connector = { type = "google" }
+    }
+  }
+
+  assert {
+    condition     = length(google_iam_workforce_pool.dex) == 0 && length(google_project_iam_member.kubectl_cluster_viewer) == 0 && output.kubectl_oidc == null
+    error_message = "kubectl through dex is opt-in: no pool, no grant, no output"
+  }
+
+  assert {
+    condition     = join(",", keys(google_secret_manager_secret.dex_client)) == "flux-web"
+    error_message = "without sso.kubectl the only platform client is flux-web"
+  }
+}
+
+run "sso_kubectl_requires_org" {
+  command = plan
+
+  variables {
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled   = true
+      connector = { type = "google" }
+      kubectl   = { enabled = true }
+    }
+  }
+
+  expect_failures = [var.sso]
+}
+
+run "sso_kubectl_requires_sso" {
+  command = plan
+
+  variables {
+    sso = {
+      kubectl = { enabled = true, organization_id = "282673588123" }
+    }
+  }
+
+  expect_failures = [var.sso]
+}
+
+run "sso_kubectl_rejects_bad_pool_id" {
+  command = plan
+
+  variables {
+    dns = {
+      zone_name  = "patchy-bitwisemedia-co-uk"
+      acme_email = "platform@bitwisemedia.co.uk"
+    }
+    sso = {
+      enabled   = true
+      connector = { type = "google" }
+      kubectl   = { enabled = true, organization_id = "282673588123", pool_id = "Dex" }
+    }
+  }
+
+  expect_failures = [var.sso]
+}
+
+run "rbac_groups_accept_principal_set" {
+  command = plan
+
+  variables {
+    rbac = {
+      groups = {
+        admins  = "principalSet://iam.googleapis.com/locations/global/workforcePools/patchy-x-dex/group/platform-admins"
+        viewers = "principalSet://iam.googleapis.com/locations/global/workforcePools/patchy-x-dex/group/platform-viewers"
+      }
+    }
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.RBAC_GROUP_ADMINS == "principalSet://iam.googleapis.com/locations/global/workforcePools/patchy-x-dex/group/platform-admins"
+    error_message = "a workforce principalSet must publish verbatim as its RBAC_GROUP_* var"
+  }
+
+  assert {
+    condition     = google_container_cluster.main.authenticator_groups_config[0].security_group == ""
+    error_message = "a principalSet subject needs no Google Groups RBAC - the authenticator stays off"
+  }
+}
+
+run "rbac_groups_reject_email_without_toggle" {
+  command = plan
+
+  variables {
+    rbac = {
+      groups = { admins = "gcp-x-patchy-admins@bitwisemedia.co.uk" }
+    }
+  }
+
+  expect_failures = [var.rbac]
+}
+
+run "rbac_groups_reject_garbage" {
+  command = plan
+
+  variables {
+    rbac = {
+      enabled = true
+      domain  = "bitwisemedia.co.uk"
+      groups  = { admins = "principalSet://iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/group/x" }
+    }
+  }
+
+  expect_failures = [var.rbac]
 }

@@ -29,7 +29,8 @@ variable "name" {
 variable "repository_id" {
   description = <<-EOT
     Artifact Registry repository id. Charts land under charts/<name>, images under images/<original-path>, and the
-    manifests artifact at flux-manifests within it.
+    signed manifest images under manifests/<name> within it (manifests/platform, the entrypoint the clusters sync;
+    manifests/<component> and manifests/<app> beside it).
   EOT
   type        = string
   nullable    = false

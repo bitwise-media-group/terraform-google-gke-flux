@@ -87,7 +87,7 @@ variable "master_authorized_networks" {
 }
 
 variable "rbac" {
-  description = "Google Groups for RBAC (module rbac input): the toggle, the Workspace domain hosting gke-security-groups, and the per-role subject groups published as RBAC_GROUP_* cluster vars. Off by default."
+  description = "RBAC (module rbac input): the Google Groups toggle, the Workspace domain hosting gke-security-groups, and the per-role subject groups (Google Group emails, or workforce principalSets under sso.kubectl) published as RBAC_GROUP_* cluster vars. Off by default."
   type = object({
     enabled = optional(bool, false)
     domain  = optional(string)
@@ -113,34 +113,20 @@ variable "secret_prefix" {
   default     = null
 }
 
-variable "stack_components" {
-  description = "Optional-tier election (module stack_components input), published as the STACK_COMPONENTS cluster var. Defaults to the whole tier; [] elects none. dex rides the sso toggle."
+variable "platform_components" {
+  description = "Electable-tier election (module platform_components input), published as the PLATFORM_COMPONENTS cluster var. Defaults to flux-web; [] elects none. dex rides the sso toggle."
   type        = set(string)
-  default     = ["flux-web", "patchy"]
+  default     = ["flux-web"]
 }
 
-variable "patchy" {
-  description = "Patchy platform knobs (module patchy input): claude.provider picks the egress-broker's model provider, published as the CLAUDE_* cluster vars; evaluation.enabled deploys the evaluation controller (PATCHY_EVALUATION), which requires sso. Defaults to anthropic with token auth and no evaluation controller."
-  type = object({
-    claude = optional(object({
-      provider = optional(object({
-        name              = optional(string, "anthropic")
-        anthropic_auth    = optional(string, "token")
-        vertex_region     = optional(string)
-        vertex_project_id = optional(string)
-        model_map         = optional(map(string), {})
-      }), {})
-    }), {})
-
-    evaluation = optional(object({
-      enabled = optional(bool, false)
-    }), {})
-  })
-  default = {}
+variable "patchy_domain" {
+  description = "The host patchy serves its webhook and status page on, handed to it as PATCHY_DOMAIN (an application var, not a cluster var)."
+  type        = string
+  default     = "patchy.bitwisemedia.co.uk"
 }
 
 variable "sso" {
-  description = "Platform SSO (module sso input): deploys dex and wires elected relying parties to it. connector declares the deployment's single upstream identity provider (an arbitrary dex connector; id defaults to type); directory_sa (the Workspace directory-reader SA) is independently optional, only relevant to a google-typed connector. clients[*].version bumps mint new client secrets."
+  description = "Platform SSO (module sso input): deploys dex and wires elected relying parties to it. connector declares the deployment's single upstream identity provider (an arbitrary dex connector; id defaults to type); directory_sa (the Workspace directory-reader SA) is independently optional, only relevant to a google-typed connector; kubectl turns on kubectl through dex via a workforce pool under organization_id. clients[*].version bumps mint new client secrets."
   type = object({
     enabled = optional(bool, false)
     connector = optional(object({
@@ -151,6 +137,13 @@ variable "sso" {
       secrets = optional(set(string), ["client-id", "client-secret"])
     }))
     directory_sa = optional(string)
+    kubectl = optional(object({
+      enabled         = optional(bool, false)
+      organization_id = optional(string)
+      pool_id         = optional(string)
+      provider_id     = optional(string, "dex-oidc")
+      client_id       = optional(string, "gcp-workforce")
+    }), {})
     clients = optional(map(object({
       version = number
     })), {})

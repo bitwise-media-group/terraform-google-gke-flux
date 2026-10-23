@@ -3,9 +3,12 @@
 
 # Every surface on: the DNS/TLS wiring (delegated zone lookup, ACME email,
 # reserved Gateway address), NAP limits, control-plane access constraints,
-# staging sync channel, pre-created workload namespaces and extra cluster
-# vars / kustomize patches. This is the shape the real patchy deployment root
-# will take.
+# SSO with kubectl through dex (workforce identity), the staging sync
+# channel, the electable platform components, extra cluster vars / kustomize
+# patches and one seeded application (patchy) composed the way a real root
+# composes it - the application's own module emits the maps, the cluster
+# module consumes them, and nothing application-specific lives in the
+# cluster module.
 
 provider "google" {
   project = var.project
@@ -28,6 +31,70 @@ provider "helm" {
       password = data.google_client_config.default.access_token
     }
   ]
+}
+
+# The application, composed beside the cluster. A real root sources this
+# from the application's own repository (patchy-app-manifests//modules/google),
+# which emits exactly these maps from static root inputs - never from cluster
+# outputs, so there is no cycle - and creates patchy's own Secret Manager
+# containers with their accessor grants (resource-side, so the cluster
+# module grants no secret reads):
+#
+#   module "patchy" {
+#     source = "git::https://github.com/bitwise-media-group/patchy-app-manifests.git//modules/google?ref=v0.1.0"
+#
+#     project                 = var.project
+#     platform_registry       = var.platform_registry
+#     secret_prefix           = var.secret_prefix
+#     domain                  = var.patchy_domain
+#     harnesses               = ["claude"]
+#     claude                  = { provider = "anthropic" }
+#     sso_enabled             = var.sso.enabled
+#     signed_identity_subject = "^https://github\\.com/bitwise-media-group/patchy-app-manifests/..."
+#   }
+#
+# Until that module is published, the same maps are spelled out literally
+# here so the example plans on its own; the values are what the module's
+# outputs carry.
+locals {
+  patchy = {
+    namespaces = ["patchy", "patchy-agents"]
+
+    # patchy's egress-broker only needs a cloud grant on the vertex provider
+    # (roles/aiplatform.user); on anthropic (this example) it carries none.
+    # The shape, for a vertex deployment:
+    #
+    #   patchy-egress-broker = {
+    #     namespace       = "patchy"
+    #     service_account = "patchy-egress-broker"
+    #     roles           = ["roles/aiplatform.user"]
+    #   }
+    workload_grants = {}
+
+    application = {
+      url        = "oci://${var.platform_registry}/manifests/patchy"
+      semver     = "<1.0.0 >=0.1.0"
+      timeout    = "10m"
+      depends_on = concat(["kyverno-policies", "gateway"], var.sso.enabled ? ["dex"] : [])
+      verify = {
+        subject = "^https://github\\.com/bitwise-media-group/patchy-app-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+      }
+    }
+
+    vars = {
+      AGENT_HARNESSES                  = "claude"
+      AGENT_EGRESS_POLICY              = "cilium"
+      PATCHY_EVALUATION                = "false"
+      PATCHY_DOMAIN                    = var.patchy_domain
+      CLAUDE_PROVIDER                  = "anthropic"
+      CLAUDE_ANTHROPIC_AUTH            = "token"
+      CLAUDE_VERTEX_REGION             = ""
+      CLAUDE_VERTEX_PROJECT_ID         = ""
+      CLAUDE_MODEL_MAP                 = ""
+      PATCHY_MANIFESTS_SEMVER          = "<1.0.0 >=0.1.0"
+      SIGNED_IDENTITY_PATCHY_MANIFESTS = "^https://github\\.com/bitwise-media-group/patchy-app-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+    }
+  }
 }
 
 module "cluster" {
@@ -72,9 +139,11 @@ module "cluster" {
 
   master_authorized_networks = var.master_authorized_networks
 
-  # Google Groups for RBAC — the gke-security-groups@<domain> group and the
-  # member groups used as RBAC subjects are managed out-of-band in Workspace;
-  # this only points the cluster authenticator at it.
+  # RBAC subjects: Google Groups (the gke-security-groups@<domain> group and
+  # the member groups are managed out-of-band in Workspace; this only points
+  # the cluster authenticator at it) or, with sso.kubectl, workforce
+  # principalSets binding dex groups directly
+  # (module.cluster.kubectl_oidc.group_principal_prefix + "<dex group>").
   rbac = var.rbac
 
   system_node_pool = {
@@ -93,12 +162,22 @@ module "cluster" {
   }
 
   # Per-cluster reusability knobs: distinct Secret Manager containers when
-  # clusters share a project, the optional-tier component election, and the
-  # SSO toggle that deploys dex and wires the elected components to it.
-  secret_prefix    = var.secret_prefix
-  stack_components = var.stack_components
-  patchy           = var.patchy
-  sso              = var.sso
+  # clusters share a project, the electable-tier component election, and the
+  # SSO toggle that deploys dex and wires every relying party to it --
+  # including kubectl, through a workforce pool trusting dex.
+  secret_prefix       = var.secret_prefix
+  platform_components = var.platform_components
+  sso                 = var.sso
+
+  # The application, wired from its module's outputs: its IAM grants, the
+  # seed that installs it and its own vars.
+  workload_grants = local.patchy.workload_grants
+  applications = {
+    patchy = local.patchy.application
+  }
+  application_vars = {
+    patchy = local.patchy.vars
+  }
 
   flux = {
     sync = {
@@ -107,9 +186,9 @@ module "cluster" {
       ref = "staging"
     }
 
-    # patchy's namespaces exist from minute zero so its secrets (GitHub App,
-    # webhook secret, Anthropic key) can land before patchy itself deploys.
-    namespaces = ["patchy", "patchy-agents"]
+    # the application's namespaces exist from minute zero so its secrets
+    # (GitHub App, webhook secret, Anthropic token) can land before it deploys
+    namespaces = local.patchy.namespaces
 
     cluster_vars = {
       # pin a component's chart range without a manifests release

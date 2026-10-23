@@ -3,8 +3,9 @@
 apiVersion: v2
 name: cluster-inputs
 description: >-
-  Per-cluster contract between terraform-google-gke-flux and the flux-manifests
-  stack: the cluster-vars ConfigMap every Kustomization substitutes from, and
-  namespaces pre-created ahead of the stack.
+  Per-cluster contract between terraform-google-gke-flux and the platform
+  manifests: the cluster-vars ConfigMap every Kustomization substitutes from,
+  the per-application <key>-vars ConfigMaps, and namespaces pre-created ahead
+  of the platform.
 type: application
 version: 0.1.0

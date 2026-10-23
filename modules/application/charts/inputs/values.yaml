@@ -1,0 +1,15 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The application's short name: the ConfigMap is <name>-vars, the contract
+# with the seed's Kustomization (postBuild.substituteFrom).
+name: ""
+
+# The application's own substitution values (SCREAMING_SNAKE_CASE keys). Empty
+# renders no ConfigMap; the Kustomization reads it as optional.
+vars: {}
+
+# Namespaces created ahead of the application, so out-of-band secrets can
+# land before Flux deploys into them; the image's own kustomizations adopt
+# them via server-side apply.
+namespaces: []

@@ -1,0 +1,84 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+{{- /* Turns the resolved tag into a verified OCIRepository and the
+       Kustomization that applies the image. Two template dialects meet here:
+       Helm's {{ }} renders the seed once at bootstrap; flux-operator's << >>
+       (inside resourcesTemplate) renders per resolved input on every
+       reconcile. The image ships an identical copy of this object and adopts
+       it on its first reconcile, so this seed is bootstrap-only. */}}
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: {{ required "name is required" .Values.name }}-manifests
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: application-seed
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  # Nothing to apply into until the Flux controllers exist.
+  dependsOn:
+    - apiVersion: fluxcd.controlplane.io/v1
+      kind: FluxInstance
+      name: flux
+      ready: true
+  inputsFrom:
+    - apiVersion: fluxcd.controlplane.io/v1
+      kind: ResourceSetInputProvider
+      name: {{ required "name is required" .Values.name }}-manifests
+  resourcesTemplate: |
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: {{ required "name is required" .Values.name }}-manifests
+      namespace: {{ .Release.Namespace }}
+    spec:
+      interval: {{ .Values.interval }}
+      provider: {{ .Values.ociProvider }}
+      url: {{ .Values.url | quote }}
+      {{- with .Values.pullSecret }}
+      secretRef:
+        name: {{ . }}
+      {{- end }}
+      ref:
+        tag: << inputs.tag | quote >>
+        << if hasKey inputs "digest" >>digest: << inputs.digest | quote >><< end >>
+      verify:
+        provider: cosign
+        {{- if .Values.verify.keyed }}
+        secretRef:
+          name: cosign-pub
+        {{- else }}
+        matchOIDCIdentity:
+          - issuer: {{ .Values.verify.issuer | squote }}
+            subject: {{ .Values.verify.subject | squote }}
+        {{- end }}
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: {{ .Values.name }}
+      namespace: {{ .Release.Namespace }}
+    spec:
+      interval: {{ .Values.interval }}
+      retryInterval: 2m
+      timeout: {{ .Values.timeout }}
+      prune: {{ .Values.prune }}
+      wait: {{ .Values.wait }}
+      {{- with .Values.dependsOn }}
+      dependsOn:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      sourceRef:
+        kind: OCIRepository
+        name: {{ $.Values.name }}-manifests
+      path: {{ .Values.path | quote }}
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+          - kind: ConfigMap
+            name: {{ .Values.name }}-vars
+            optional: true

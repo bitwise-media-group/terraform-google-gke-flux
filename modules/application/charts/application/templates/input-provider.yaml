@@ -1,0 +1,27 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+{{- /* Resolves the newest image tag in the semver range and exports
+       {id, tag, digest} to the ResourceSet. The prune: disabled label is
+       essential: the image's own Kustomization adopts this object (the image
+       ships an identical copy under flux/) and must never be able to prune
+       its own parent should a release drop that copy. */}}
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: {{ required "name is required" .Values.name }}-manifests
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: application-seed
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: {{ .Values.interval | quote }}
+spec:
+  type: {{ .Values.tagProvider }}
+  url: {{ .Values.url | quote }}
+  {{- with .Values.pullSecret }}
+  secretRef:
+    name: {{ . }}
+  {{- end }}
+  filter:
+    semver: {{ .Values.semver | quote }}
+    limit: 1

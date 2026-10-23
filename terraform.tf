@@ -5,9 +5,11 @@ terraform {
   required_version = ">= 1.11, < 2.0"
 
   required_providers {
+    # 7.46 is the oldest release this module is verified against with the
+    # workforce pool provider's write-only client secret (kubectl.tf).
     google = {
       source  = "hashicorp/google"
-      version = ">= 7.0, < 8.6"
+      version = ">= 7.46, < 8.6"
     }
     # The cluster resource alone rides the beta provider (a lockstep superset
     # of google): managed_opentelemetry_config has not been promoted to GA.
@@ -21,7 +23,7 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 3.0"
     }
-    # The ephemeral dex client secrets (sso.tf).
+    # The ephemeral dex client secrets (sso.tf, kubectl.tf).
     random = {
       source  = "hashicorp/random"
       version = ">= 3.7, < 4.0"
