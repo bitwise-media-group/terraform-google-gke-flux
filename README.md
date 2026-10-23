@@ -310,7 +310,7 @@ alone, so bump the version in the same apply to keep both halves of the pair in 
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
 | google | >= 7.46, < 8.6 |
-| google-beta | >= 7.33, < 8.6 |
+| google-beta | >= 7.33, < 8.8 |
 | helm | ~> 3.0 |
 | random | >= 3.7, < 4.0 |
 
@@ -319,7 +319,7 @@ alone, so bump the version in the same apply to keep both halves of the pair in 
 | Name | Version |
 | ---- | ------- |
 | google | >= 7.46, < 8.6 |
-| google-beta | >= 7.33, < 8.6 |
+| google-beta | >= 7.33, < 8.8 |
 
 ## Modules
 
