@@ -22,13 +22,13 @@ public-key distribution. Consumers verify artifacts against the publishing workf
 | Name | Version |
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
-| google | >= 7.0, < 8.9 |
+| google | >= 7.0, < 8.10 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| google | >= 7.0, < 8.9 |
+| google | >= 7.0, < 8.10 |
 
 ## Modules
 
