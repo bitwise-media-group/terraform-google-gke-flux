@@ -53,14 +53,14 @@ another release owns - but the IAM members don't: an IAM member binding is share
 | Name | Version |
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
-| google | >= 7.46, < 8.10 |
+| google | >= 7.46, < 8.9 |
 | helm | ~> 3.0 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| google | >= 7.46, < 8.10 |
+| google | >= 7.46, < 8.9 |
 | helm | ~> 3.0 |
 
 ## Modules
