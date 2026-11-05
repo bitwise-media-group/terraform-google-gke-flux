@@ -41,6 +41,8 @@ variable "cluster" {
       - project / project_number / workload_pool: the cluster's project and its Workload Identity pool
         (<project>.svc.id.goog), which compose the direct principal:// members workload_grants bind.
       - secret_prefix: the SECRET_PREFIX the application's own Secret Manager containers are named under.
+      - location / node_locations / node_service_account (optional, unused here): the node facts the application
+        root's own modules/node-pool call reads from the same value; accepted so it passes through verbatim.
   EOT
   type = object({
     name              = string
@@ -53,6 +55,10 @@ variable "cluster" {
     project_number    = string
     workload_pool     = string
     secret_prefix     = string
+
+    location             = optional(string)
+    node_locations       = optional(set(string), [])
+    node_service_account = optional(string)
   })
   nullable = false
 

@@ -394,7 +394,7 @@ alone, so bump the version in the same apply to keep both halves of the pair in 
 
 | Name | Description |
 | ---- | ----------- |
-| application\_target | Everything modules/application needs to publish an application to this cluster from a root of its own: the<br/>cluster name, the flux namespace, the platform registry, the per-cloud tree (flux.sync.path), the keyless<br/>signing issuer (null in KMS mode), whether the cluster is KMS-keyed, the project, project number and Workload<br/>Identity pool its workload grants bind principals in, and the SECRET\_PREFIX. Pass it to the module's cluster<br/>input verbatim. |
+| application\_target | Everything modules/application needs to publish an application to this cluster from a root of its own: the<br/>cluster name, the flux namespace, the platform registry, the per-cloud tree (flux.sync.path), the keyless<br/>signing issuer (null in KMS mode), whether the cluster is KMS-keyed, the project, project number and Workload<br/>Identity pool its workload grants bind principals in, and the SECRET\_PREFIX. Also the node facts an application<br/>root's own modules/node-pool call needs: the cluster location, its node locations (var.zones; empty inherits the<br/>cluster's) and the node service account email every pool runs as. Pass it to modules/application's cluster input<br/>verbatim. |
 | ca\_certificate | Base64-encoded cluster CA certificate. |
 | dns | Delegated zone wiring (null when dns.zone\_name is unset): zone name, apex domain, served host (PLATFORM\_DOMAIN) and the zone's name servers. |
 | endpoint | Control-plane endpoint IP (host for the helm/kubernetes providers). |

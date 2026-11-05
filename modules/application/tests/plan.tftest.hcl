@@ -435,3 +435,33 @@ run "grant_role_shape" {
 
   expect_failures = [var.workload_grants]
 }
+
+# The cluster root's application_target also carries the node facts an
+# application root's own modules/node-pool call reads; the module accepts them
+# so the output still passes through verbatim, and ignores them.
+run "cluster_accepts_node_facts" {
+  command = plan
+
+  variables {
+    cluster = {
+      name                 = "patchy-x"
+      namespace            = "flux-system"
+      platform_registry    = "us-central1-docker.pkg.dev/x-patchy-app-ab12/platform"
+      tree                 = "google"
+      issuer               = "^https://token\\.actions\\.githubusercontent\\.com$"
+      keyed                = false
+      project              = "x-patchy-app-ab12"
+      project_number       = "123456789012"
+      workload_pool        = "x-patchy-app-ab12.svc.id.goog"
+      secret_prefix        = "patchy-x-"
+      location             = "us-central1-a"
+      node_locations       = ["us-central1-a"]
+      node_service_account = "patchy-x-nodes@x-patchy-app-ab12.iam.gserviceaccount.com"
+    }
+  }
+
+  assert {
+    condition     = helm_release.seed.name == "application-demo" && output.path == "./deploy/google"
+    error_message = "the node facts must type-check and change nothing about the seed"
+  }
+}

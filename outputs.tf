@@ -113,8 +113,10 @@ output "application_target" {
     Everything modules/application needs to publish an application to this cluster from a root of its own: the
     cluster name, the flux namespace, the platform registry, the per-cloud tree (flux.sync.path), the keyless
     signing issuer (null in KMS mode), whether the cluster is KMS-keyed, the project, project number and Workload
-    Identity pool its workload grants bind principals in, and the SECRET_PREFIX. Pass it to the module's cluster
-    input verbatim.
+    Identity pool its workload grants bind principals in, and the SECRET_PREFIX. Also the node facts an application
+    root's own modules/node-pool call needs: the cluster location, its node locations (var.zones; empty inherits the
+    cluster's) and the node service account email every pool runs as. Pass it to modules/application's cluster input
+    verbatim.
   EOT
   value = {
     name              = google_container_cluster.main.name
@@ -127,6 +129,10 @@ output "application_target" {
     project_number    = data.google_project.cluster.number
     workload_pool     = local.workload_identity_pool
     secret_prefix     = local.secret_prefix
+
+    location             = google_container_cluster.main.location
+    node_locations       = var.zones
+    node_service_account = google_service_account.nodes.email
   }
 }
 

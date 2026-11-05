@@ -1208,6 +1208,36 @@ run "application_target" {
   }
 }
 
+# The node facts an application root's own modules/node-pool call reads: the
+# cluster location, the node locations and the node SA the system pool uses.
+run "application_target_node_facts" {
+  command = plan
+
+  variables {
+    location = "us-central1-a"
+    zones    = ["us-central1-a"]
+  }
+
+  override_resource {
+    target          = google_service_account.nodes
+    override_during = plan
+    values = {
+      email  = "patchy-x-nodes@x-patchy-app-ab12.iam.gserviceaccount.com"
+      member = "serviceAccount:patchy-x-nodes@x-patchy-app-ab12.iam.gserviceaccount.com"
+    }
+  }
+
+  assert {
+    condition     = output.application_target.location == "us-central1-a" && output.application_target.node_locations == toset(["us-central1-a"])
+    error_message = "application_target must carry the cluster location and its node locations"
+  }
+
+  assert {
+    condition     = output.application_target.node_service_account == "patchy-x-nodes@x-patchy-app-ab12.iam.gserviceaccount.com" && output.application_target.node_service_account == output.node_service_account.email
+    error_message = "application_target must carry the node service account email every pool runs as"
+  }
+}
+
 run "application_target_keyed" {
   command = plan
 
