@@ -25,6 +25,11 @@ output "kubectl_oidc" {
   value       = module.cluster.kubectl_oidc
 }
 
+output "node_pools" {
+  description = "The cluster-owned node pools beyond the system pool (name, id, labels, taints)."
+  value       = module.cluster.node_pools
+}
+
 output "application_target" {
   description = "What a second root publishes an application to this cluster with (examples/application's cluster input)."
   value       = module.cluster.application_target

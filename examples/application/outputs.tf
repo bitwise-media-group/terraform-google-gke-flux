@@ -16,3 +16,12 @@ output "workload_members" {
   description = "The federated principal of each workload grant, keyed as workload_grants."
   value       = module.demo.workload_members
 }
+
+output "node_pool" {
+  description = "The application's own node pool: the name its workloads pin with (cloud.google.com/gke-nodepool), labels and taints."
+  value = {
+    name   = module.node_pool.name
+    labels = module.node_pool.labels
+    taints = module.node_pool.taints
+  }
+}

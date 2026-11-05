@@ -32,7 +32,7 @@ data "google_client_config" "default" {}
 
 data "google_container_cluster" "target" {
   project  = var.cluster.project
-  location = var.location
+  location = var.cluster.location
   name     = var.cluster.name
 }
 
@@ -75,6 +75,32 @@ module "demo" {
       roles           = ["roles/aiplatform.user"]
     }
   }
+}
+
+# The application's own capacity: application modules never create nodes, so
+# an application that needs dedicated capacity calls modules/node-pool beside
+# its modules/application call, fed from the same application_target (the
+# cluster location, its node locations and the node service account every
+# pool runs as). The pool scales to zero when idle and is tainted so only the
+# demo's workloads -- which tolerate workload=demo:NoSchedule and select
+# cloud.google.com/gke-nodepool: demo in their own manifests -- land on it.
+module "node_pool" {
+  source = "../../modules/node-pool"
+
+  project         = var.cluster.project
+  cluster         = var.cluster.name
+  location        = var.cluster.location
+  node_locations  = var.cluster.node_locations
+  service_account = var.cluster.node_service_account
+  name            = "demo"
+
+  machine_type = "e2-standard-4"
+  min_size     = 0
+  max_size     = 3
+  initial_size = 0
+
+  labels = { workload = "demo" }
+  taints = [{ key = "workload", value = "demo", effect = "NO_SCHEDULE" }]
 }
 
 # An application-owned secret: created here, under the cluster's prefix, and

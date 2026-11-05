@@ -21,7 +21,9 @@ moved to [patchy-app-manifests] (its `modules/google`), along with `modules/scc-
 
 - **GKE Standard, regional or zonal, VPC-native** on a shared-VPC subnet (created by cloud-accounts), Dataplane V2
   (built-in Cilium), Workload Identity, private nodes behind Cloud NAT. A small always-on **system node pool**
-  (`role=system`) carries the platform controllers; **node auto-provisioning** scales everything else.
+  (`role=system`) carries the platform controllers; **node auto-provisioning** scales everything else. Dedicated
+  capacity is a [`modules/node-pool`](modules/node-pool/) call — the cluster's own (`node_pools`) or an application's,
+  beside its `modules/application` call (see [Capacity / node pools](#capacity--node-pools)).
 - **One Artifact Registry docker repository** (`platform`) holds mirrored charts (`charts/<name>`), digest-pinned
   mirrored images (`images/<original-path>`) and the signed manifest images (`manifests/platform`, the entrypoint the
   FluxInstance syncs, plus `manifests/<component>` and `manifests/<app>`).
@@ -245,6 +247,64 @@ terraform-reconciled `application-<name>-inputs` release carrying the `<name>-va
 the workload grants' IAM members. An application lives in the cluster root **or** in its own root, never both. The
 helm release names collide loudly; the IAM members don't — an IAM member binding is shared, so if two roots declare the
 same (member, role) pair, destroying either removes it for both.
+
+## Capacity / node pools
+
+Every node pool is built by [`modules/node-pool`](modules/node-pool/): the always-on `system` pool (`system_node_pool`,
+per-zone sizing), any cluster-owned extras (`node_pools`, keyed by pool name — `system` is reserved), and pools an
+application owns. Workload capacity is otherwise node auto-provisioning's job, so most clusters need neither.
+
+**Application modules never own node capacity.** An application that needs dedicated nodes calls `modules/node-pool`
+itself, beside its `modules/application` call, fed from the same `application_target` — which carries the cluster
+`location`, its `node_locations` and the `node_service_account` every pool runs as (`examples/application`):
+
+```hcl
+locals {
+  cluster = data.terraform_remote_state.cluster.outputs.application_target
+}
+
+module "arc_arm64" {
+  source = "git::https://github.com/bitwise-media-group/terraform-google-gke-flux.git//modules/node-pool?ref=vX.Y.Z"
+
+  project         = local.cluster.project
+  cluster         = local.cluster.name
+  location        = local.cluster.location
+  node_locations  = local.cluster.node_locations
+  service_account = local.cluster.node_service_account
+  name            = "arc-arm64"
+
+  machine_type = "t2a-standard-4"
+  min_size     = 0 # cluster-wide totals: scales to zero when idle
+  max_size     = 4
+  initial_size = 0
+
+  labels = { workload = "arc" }
+  taints = [{ key = "workload", value = "arc", effect = "NO_SCHEDULE" }]
+}
+```
+
+The pool lives and dies with the application's root. Two things to get right in the workloads that run there:
+
+- **Arm nodes carry a GKE taint of their own.** GKE taints every Arm node `kubernetes.io/arch=arm64:NoSchedule`,
+  whatever the pool declares, so arm64 workloads must tolerate it (alongside the pool's own taints) — it does not appear
+  in the module's `taints` input or output.
+- **Pin the pool by name.** Select `cloud.google.com/gke-nodepool: <name>` as well as tolerating the pool's taints.
+  Selecting only on labels and taints lets node auto-provisioning satisfy a pending pod by minting a look-alike pool
+  (same labels and taints, auto-provisioned machine type) when the dedicated pool is at `max_size`; pinning the pool
+  name leaves it nothing to match.
+
+### Not ported from terraform-aws-eks-flux
+
+The AWS sibling has moved ahead in places that do not apply here, deliberately:
+
+- **Internal gateway subnets** — GKE has no private Gateway equivalent to the internal load-balancer subnets EKS needs.
+- **Custom AMIs** for node groups and Karpenter — GKE node images are picked by `image_type` (`system_node_pool`,
+  `node_pools`, `modules/node-pool`), and there is no bootstrap user data to render.
+- **The node security-group commits** (`65dd7c1`, `baee677`) — EKS node and cluster security-group rules, which have
+  no counterpart in this module (GKE nodes take the shared VPC's firewall rules, owned by cloud-accounts).
+- **Artifact-store tag immutability and replication** (`11b1d21`, `99819e8`) — deferred, not rejected: Artifact
+  Registry's repository-wide `immutable_tags` cannot exempt the moving channel tags, and multi-region replication
+  needs a design of its own.
 
 ## Dex clients
 

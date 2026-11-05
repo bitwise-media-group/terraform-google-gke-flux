@@ -152,6 +152,23 @@ module "cluster" {
     max_size     = 2
   }
 
+  # A cluster-owned spot pool for batch work, tainted so only workloads that
+  # tolerate it land there, scaling to zero when idle. Capacity an
+  # application needs for itself belongs in that application's own root
+  # instead (examples/application's module "node_pool").
+  node_pools = {
+    batch-spot = {
+      machine_type    = "e2-standard-4"
+      spot            = true
+      location_policy = "ANY"
+      min_size        = 0
+      max_size        = 4
+      initial_size    = 0
+      labels          = { workload = "batch" }
+      taints          = [{ key = "workload", value = "batch", effect = "NO_SCHEDULE" }]
+    }
+  }
+
   node_auto_provisioning = {
     max_cpu        = 128
     max_memory_gib = 512

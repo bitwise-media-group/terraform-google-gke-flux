@@ -7,12 +7,6 @@ variable "region" {
   default     = "us-central1"
 }
 
-variable "location" {
-  description = "The cluster's location (its region, or its zone for a zonal cluster)."
-  type        = string
-  default     = "us-central1"
-}
-
 variable "cluster" {
   description = "The cluster root's application_target output, verbatim."
   type = object({
@@ -26,6 +20,10 @@ variable "cluster" {
     project_number    = string
     workload_pool     = string
     secret_prefix     = string
+
+    location             = string
+    node_locations       = optional(set(string), [])
+    node_service_account = string
   })
 }
 
