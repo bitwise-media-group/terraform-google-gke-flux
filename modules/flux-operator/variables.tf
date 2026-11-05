@@ -150,7 +150,7 @@ variable "signed_identity" {
 variable "kustomize_patches" {
   description = <<-EOT
     Extra kustomize patches applied to the generated Flux instance objects, on top of the built-in controller
-    nodeSelector and flux-system OCIRepository verify patches.
+    nodeSelector, flux-system OCIRepository verify and flux-system Kustomization cluster-vars substitution patches.
   EOT
   type        = list(any)
   nullable    = false

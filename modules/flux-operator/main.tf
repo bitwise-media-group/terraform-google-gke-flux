@@ -140,6 +140,30 @@ locals {
       }
     }
   ]
+
+  # FluxInstance spec.sync has no substitution field either, so the generated
+  # Kustomization that applies the platform entrypoint substitutes from
+  # cluster-vars by patch, like every Kustomization the entrypoint emits. An
+  # entrypoint that reads cluster vars itself (a ResourceSet emitting the
+  # component sources from ${PLATFORM_REGISTRY} and ${OCI_PROVIDER}) would
+  # otherwise apply them literal.
+  sync_substitution_patches = [
+    {
+      patch = yamlencode([
+        {
+          op   = "add"
+          path = "/spec/postBuild"
+          value = {
+            substituteFrom = [{ kind = "ConfigMap", name = "cluster-vars" }]
+          }
+        }
+      ])
+      target = {
+        kind = "Kustomization"
+        name = var.namespace
+      }
+    }
+  ]
 }
 
 resource "helm_release" "flux_operator" {
@@ -215,7 +239,7 @@ resource "helm_release" "flux_instance" {
           interval = var.sync.interval
         }
         kustomize = {
-          patches = concat(local.controller_patches, local.sync_verify_patches, var.kustomize_patches)
+          patches = concat(local.controller_patches, local.sync_verify_patches, local.sync_substitution_patches, var.kustomize_patches)
         }
       }
     })

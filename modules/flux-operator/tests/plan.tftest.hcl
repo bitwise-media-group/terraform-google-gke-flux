@@ -120,6 +120,34 @@ run "keyed_verification" {
   }
 }
 
+run "sync_substitutes_cluster_vars" {
+  command = plan
+
+  # FluxInstance spec.sync has no substitution field, so the generated
+  # Kustomization reads cluster-vars only through this patch. Without it an
+  # entrypoint that references cluster vars applies them literal.
+  assert {
+    condition = (
+      local.sync_substitution_patches[0].target.kind == "Kustomization"
+      && local.sync_substitution_patches[0].target.name == "flux-system"
+    )
+    error_message = "the substitution patch must target the generated flux-system Kustomization"
+  }
+
+  assert {
+    condition = (
+      yamldecode(local.sync_substitution_patches[0].patch)[0].value.substituteFrom[0]
+      == { kind = "ConfigMap", name = "cluster-vars" }
+    )
+    error_message = "the sync must substitute from the cluster-vars ConfigMap the cluster-inputs chart renders"
+  }
+
+  assert {
+    condition     = strcontains(helm_release.flux_instance.values[0], "substituteFrom")
+    error_message = "the substitution patch must reach the FluxInstance's kustomize patches"
+  }
+}
+
 run "cluster_inputs_contract" {
   command = plan
 
