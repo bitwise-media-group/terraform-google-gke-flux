@@ -160,8 +160,9 @@ variable "rbac" {
 
 variable "system_node_pool" {
   description = <<-EOT
-    The always-on system node pool platform controllers pin to (label role=system). Autoscaling counts are per zone in
-    a regional pool.
+    The always-on system node pool platform controllers pin to (label role=system), built through modules/node-pool.
+    Autoscaling counts are per zone in a regional pool. image_type selects the node image (null is the GKE default,
+    COS_CONTAINERD); changing it recreates the nodes through a surge upgrade.
   EOT
   type = object({
     machine_type  = optional(string, "e2-standard-2")
@@ -169,9 +170,54 @@ variable "system_node_pool" {
     max_size      = optional(number, 2)
     initial_size  = optional(number, 1)
     disk_size_gib = optional(number, 50)
+    image_type    = optional(string)
   })
   nullable = false
   default  = {}
+}
+
+variable "node_pools" {
+  description = <<-EOT
+    Additional cluster-owned node pools, keyed by pool name ("system" is reserved for the platform tier). Most clusters
+    need none - node auto-provisioning creates workload capacity - and an application that needs dedicated capacity
+    calls modules/node-pool from its own root rather than listing it here. Each entry takes modules/node-pool's
+    optional inputs with the same defaults: node_locations (empty inherits the cluster's), machine_type, spot,
+    min_size/max_size (cluster-wide totals unless size_per_zone), initial_size (per zone, create-time only),
+    disk_size_gib, disk_type, image_type, labels, taints (effects NO_SCHEDULE, PREFER_NO_SCHEDULE or NO_EXECUTE),
+    location_policy (BALANCED or ANY) and resource_labels. Every pool runs as the cluster's node service account.
+  EOT
+  type = map(object({
+    node_locations = optional(set(string), [])
+    machine_type   = optional(string, "e2-standard-2")
+    spot           = optional(bool, false)
+    min_size       = optional(number, 1)
+    max_size       = optional(number, 3)
+    size_per_zone  = optional(bool, false)
+    initial_size   = optional(number, 1)
+    disk_size_gib  = optional(number, 50)
+    disk_type      = optional(string)
+    image_type     = optional(string)
+    labels         = optional(map(string), {})
+    taints = optional(list(object({
+      key    = string
+      value  = optional(string)
+      effect = string
+    })), [])
+    location_policy = optional(string)
+    resource_labels = optional(map(string), {})
+  }))
+  nullable = false
+  default  = {}
+
+  validation {
+    condition     = !contains(keys(var.node_pools), "system")
+    error_message = "node_pools must not use the key \"system\" - the platform tier's pool is configured through system_node_pool."
+  }
+
+  validation {
+    condition     = alltrue([for name in keys(var.node_pools) : can(regex("^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$", name))])
+    error_message = "node_pools keys must be lowercase RFC-1035 labels of at most 40 characters (they are the GKE node pool names)."
+  }
 }
 
 variable "node_auto_provisioning" {

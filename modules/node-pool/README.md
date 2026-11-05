@@ -107,6 +107,7 @@ No modules.
 | ---- | ----------- |
 | id | Node pool id (projects/<project>/locations/<location>/clusters/<cluster>/nodePools/<name>). |
 | labels | Kubernetes labels every node in the pool carries - the selectors workloads pin with. |
+| location | The cluster location the pool was created in. |
 | name | The node pool's name - the value workloads pin with the cloud.google.com/gke-nodepool label. |
 | taints | Kubernetes taints every node in the pool carries (as configured; GKE's own Arm taint is not listed). |
 <!-- END_TF_DOCS -->

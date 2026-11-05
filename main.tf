@@ -266,43 +266,66 @@ resource "google_container_cluster" "main" {
   resource_labels = var.labels
 }
 
-# The always-on system node pool: flux controllers, kyverno, cert-manager and
-# the other platform components pin here via nodeSelector role=system, away
-# from auto-provisioned workload capacity.
-resource "google_container_node_pool" "system" {
-  project  = var.project
-  cluster  = google_container_cluster.main.name
-  location = google_container_cluster.main.location
-  name     = "system"
+# ---------------------------------------------------------------------------
+# Node pools, built through modules/node-pool. The always-on system pool
+# carries the platform tier - flux controllers, kyverno, cert-manager and the
+# other platform components pin here via nodeSelector role=system, away from
+# auto-provisioned workload capacity - and var.node_pools adds static pools
+# auto-provisioning cannot express. An application that needs dedicated
+# capacity calls modules/node-pool from its own root instead (see the README).
+# ---------------------------------------------------------------------------
 
-  initial_node_count = var.system_node_pool.initial_size
+module "system_node_pool" {
+  source = "./modules/node-pool"
 
-  autoscaling {
-    # per-zone counts in a regional pool
-    min_node_count = var.system_node_pool.min_size
-    max_node_count = var.system_node_pool.max_size
-  }
+  project         = var.project
+  cluster         = google_container_cluster.main.name
+  location        = google_container_cluster.main.location
+  name            = "system"
+  service_account = google_service_account.nodes.email
 
-  node_config {
-    machine_type    = var.system_node_pool.machine_type
-    disk_size_gb    = var.system_node_pool.disk_size_gib
-    service_account = google_service_account.nodes.email
-    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+  machine_type  = var.system_node_pool.machine_type
+  disk_size_gib = var.system_node_pool.disk_size_gib
+  image_type    = var.system_node_pool.image_type
+  initial_size  = var.system_node_pool.initial_size
 
-    labels = local.system_node_selector
+  # per-zone counts in a regional pool (the variable's documented contract)
+  size_per_zone = true
+  min_size      = var.system_node_pool.min_size
+  max_size      = var.system_node_pool.max_size
 
-    workload_metadata_config {
-      mode = "GKE_METADATA"
-    }
+  labels = local.system_node_selector
+}
 
-    shielded_instance_config {
-      enable_secure_boot          = true
-      enable_integrity_monitoring = true
-    }
-  }
+# The pool was a root resource before modules/node-pool existed; same name,
+# same settings, so the move is a no-op plan.
+moved {
+  from = google_container_node_pool.system
+  to   = module.system_node_pool.google_container_node_pool.main
+}
 
-  management {
-    auto_repair  = true
-    auto_upgrade = true
-  }
+module "node_pool" {
+  source   = "./modules/node-pool"
+  for_each = var.node_pools
+
+  project         = var.project
+  cluster         = google_container_cluster.main.name
+  location        = google_container_cluster.main.location
+  name            = each.key
+  service_account = google_service_account.nodes.email
+
+  node_locations  = each.value.node_locations
+  machine_type    = each.value.machine_type
+  spot            = each.value.spot
+  min_size        = each.value.min_size
+  max_size        = each.value.max_size
+  size_per_zone   = each.value.size_per_zone
+  initial_size    = each.value.initial_size
+  disk_size_gib   = each.value.disk_size_gib
+  disk_type       = each.value.disk_type
+  image_type      = each.value.image_type
+  labels          = each.value.labels
+  taints          = each.value.taints
+  location_policy = each.value.location_policy
+  resource_labels = each.value.resource_labels
 }

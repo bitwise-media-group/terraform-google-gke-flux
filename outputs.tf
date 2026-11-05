@@ -29,10 +29,31 @@ output "workload_identity_pool" {
 }
 
 output "node_service_account" {
-  description = "The dedicated node service account (system pool + auto-provisioned pools)."
+  description = "The dedicated node service account (system pool, node_pools, auto-provisioned pools and application-owned pools)."
   value = {
     email  = google_service_account.nodes.email
     member = google_service_account.nodes.member
+  }
+}
+
+output "system_node_pool" {
+  description = "The system node pool's name, id and the labels platform controllers pin with."
+  value = {
+    name   = module.system_node_pool.name
+    id     = module.system_node_pool.id
+    labels = module.system_node_pool.labels
+  }
+}
+
+output "node_pools" {
+  description = "Each var.node_pools entry's name, id, labels and taints."
+  value = {
+    for key, pool in module.node_pool : key => {
+      name   = pool.name
+      id     = pool.id
+      labels = pool.labels
+      taints = pool.taints
+    }
   }
 }
 

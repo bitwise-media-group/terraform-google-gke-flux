@@ -249,7 +249,7 @@ module "flux_operator" {
   # IAM grants (in-project workload grants, and the central-registry reader
   # bindings) must be live before the first reconcile needs them.
   depends_on = [
-    google_container_node_pool.system,
+    module.system_node_pool,
     google_project_iam_member.workload,
     google_project_iam_member.registry_readers,
   ]

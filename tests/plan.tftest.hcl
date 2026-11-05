@@ -100,7 +100,7 @@ run "cluster_shape" {
   }
 
   assert {
-    condition     = google_container_node_pool.system.node_config[0].labels["role"] == "system"
+    condition     = module.system_node_pool.labels["role"] == "system"
     error_message = "the system pool must carry the role=system label platform controllers pin to"
   }
 
@@ -146,7 +146,7 @@ run "zonal_location" {
   }
 
   assert {
-    condition     = google_container_node_pool.system.location == "us-central1-a"
+    condition     = module.system_node_pool.location == "us-central1-a"
     error_message = "the system pool must follow the cluster's location"
   }
 
@@ -154,6 +154,92 @@ run "zonal_location" {
     condition     = output.flux.cluster_vars.GCP_REGION == "us-central1"
     error_message = "GCP_REGION must be the zone's enclosing region, never the zone itself"
   }
+}
+
+# The system pool is built through modules/node-pool (moved from the former
+# root resource, same name), and node_pools adds cluster-owned pools beside it.
+run "system_pool_through_module" {
+  command = plan
+
+  assert {
+    condition     = module.system_node_pool.name == "system" && output.system_node_pool.name == "system"
+    error_message = "the system pool must keep the name system (the moved block relies on it for a no-op plan)"
+  }
+
+  assert {
+    condition     = output.system_node_pool.labels["role"] == "system"
+    error_message = "the system pool must carry the role=system label platform controllers pin to"
+  }
+
+  assert {
+    condition     = length(output.node_pools) == 0
+    error_message = "no extra pools unless node_pools asks for them"
+  }
+}
+
+run "node_pools_create_extra_pools" {
+  command = plan
+
+  variables {
+    node_pools = {
+      batch = {
+        machine_type = "e2-standard-4"
+        min_size     = 0
+        max_size     = 4
+        initial_size = 0
+        labels       = { workload = "batch" }
+        taints       = [{ key = "workload", value = "batch", effect = "NO_SCHEDULE" }]
+      }
+      arm = {
+        machine_type = "t2a-standard-4"
+        spot         = true
+      }
+    }
+  }
+
+  assert {
+    condition     = keys(output.node_pools) == ["arm", "batch"]
+    error_message = "every node_pools entry must become a pool"
+  }
+
+  assert {
+    condition     = output.node_pools["batch"].name == "batch" && output.node_pools["arm"].name == "arm"
+    error_message = "node_pools keys must become the GKE pool names"
+  }
+
+  assert {
+    condition     = output.node_pools["batch"].labels["workload"] == "batch" && output.node_pools["batch"].taints[0].effect == "NO_SCHEDULE"
+    error_message = "labels and taints must pass through to the pool"
+  }
+
+  assert {
+    condition     = length(output.node_pools["arm"].taints) == 0 && output.system_node_pool.name == "system"
+    error_message = "a pool without taints carries none, and the system pool stays alongside"
+  }
+}
+
+run "node_pools_reject_system_key" {
+  command = plan
+
+  variables {
+    node_pools = {
+      system = {}
+    }
+  }
+
+  expect_failures = [var.node_pools]
+}
+
+run "node_pools_reject_long_names" {
+  command = plan
+
+  variables {
+    node_pools = {
+      a-node-pool-name-well-beyond-forty-characters = {}
+    }
+  }
+
+  expect_failures = [var.node_pools]
 }
 
 run "managed_opentelemetry_pilot" {

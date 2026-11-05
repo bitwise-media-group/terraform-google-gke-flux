@@ -20,3 +20,8 @@ output "taints" {
   description = "Kubernetes taints every node in the pool carries (as configured; GKE's own Arm taint is not listed)."
   value       = google_container_node_pool.main.node_config[0].taint
 }
+
+output "location" {
+  description = "The cluster location the pool was created in."
+  value       = google_container_node_pool.main.location
+}
