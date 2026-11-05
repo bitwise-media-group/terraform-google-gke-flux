@@ -63,6 +63,23 @@ variable "sso" {
   }
 }
 
+variable "replica_locations" {
+  description = <<-EOT
+    Regions every secret container is replicated to (user-managed replication), e.g. the regions clusters run in.
+    Null (or empty) keeps automatic, Google-managed replication. Secret Manager copies each out-of-band version to every
+    replica, so a value is put once. Replication is immutable on a container: changing this REPLACES every container
+    and discards its versions, which must then be re-added out of band.
+  EOT
+  type        = set(string)
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = alltrue([for location in coalesce(var.replica_locations, []) : can(regex("^[a-z]+-[a-z]+[0-9]$", location))])
+    error_message = "replica_locations must be GCP region names (e.g. us-central1)."
+  }
+}
+
 variable "labels" {
   description = "Labels applied to every secret container."
   type        = map(string)

@@ -23,6 +23,10 @@ that cluster's dex syncs:
 | --- | --- | --- |
 | `dex-<id>-<field>` | `sso.enabled`, one per `sso.connector.secrets` field | The connector's out-of-band credential fields (e.g. the console-created OAuth client dex signs users in with) |
 
+Containers use automatic (Google-managed) replication unless `replica_locations` pins them to named regions
+(user-managed replication). Replication is immutable on a container, so changing it replaces every container and
+discards its versions — decide before the first versions are added.
+
 After the first apply, add a version to every container:
 
 ```sh
@@ -78,6 +82,7 @@ No modules.
 | ---- | ----------- | ---- | ------- | :------: |
 | project | Project ID the secret containers live in -- necessarily the cluster's own project: the platform's dex component<br/>reads containers from the GCP\_PROJECT cluster var, and its sync KSA authenticates through that project's<br/><project>.svc.id.goog Workload Identity pool. | `string` | n/a | yes |
 | labels | Labels applied to every secret container. | `map(string)` | `{}` | no |
+| replica\_locations | Regions every secret container is replicated to (user-managed replication), e.g. the regions clusters run in.<br/>Null (or empty) keeps automatic, Google-managed replication. Secret Manager copies each out-of-band version to every<br/>replica, so a value is put once. Replication is immutable on a container: changing this REPLACES every container<br/>and discards its versions, which must then be re-added out of band. | `set(string)` | `null` | no |
 | secret\_prefix | Prefix for every container name, matching the cluster module's secret\_prefix input (its secret\_prefix output;<br/>the platform syncs <prefix><container>, so the two must move together). Lets multiple clusters share one project<br/>with distinct secrets -- each cluster then needs its own prefixed set of containers and fresh out-of-band<br/>versions. Include the trailing separator (e.g. 'platform-x-'); null keeps the unprefixed names. | `string` | `null` | no |
 | sso | Platform SSO election -- pass the cluster module's sso value verbatim (its attributes beyond enabled and the<br/>connector's id/type/secrets, e.g. kubectl and clients, are dropped by type conversion). enabled mirrors the cluster's dex toggle and gates<br/>the connector containers; the connector's secrets names its out-of-band credential fields, creating one<br/>dex-<id>-<field> Secret Manager container per field (id defaulting to type, matching the cluster module) --<br/>populate versions out of band (an OAuth client cannot be terraformed). On its own enabled creates nothing: no<br/>connector is declared by default. | <pre>object({<br/>    enabled = optional(bool, false)<br/>    connector = optional(object({<br/>      id      = optional(string)<br/>      type    = string<br/>      secrets = optional(set(string), ["client-id", "client-secret"])<br/>    }))<br/>  })</pre> | `{}` | no |
 

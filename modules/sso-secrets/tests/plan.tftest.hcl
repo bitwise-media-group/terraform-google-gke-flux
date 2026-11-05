@@ -164,3 +164,60 @@ run "reserved_connector_id" {
 
   expect_failures = [var.sso]
 }
+
+run "automatic_replication_by_default" {
+  command = plan
+
+  variables {
+    sso = {
+      enabled   = true
+      connector = { type = "google" }
+    }
+  }
+
+  assert {
+    condition = alltrue([
+      for secret in values(google_secret_manager_secret.main) :
+      length(secret.replication[0].auto) == 1 && length(secret.replication[0].user_managed) == 0
+    ])
+    error_message = "without replica_locations every container keeps automatic replication"
+  }
+}
+
+run "replica_locations_pin_replication" {
+  command = plan
+
+  variables {
+    sso = {
+      enabled   = true
+      connector = { type = "google" }
+    }
+    replica_locations = ["us-central1", "europe-west2"]
+  }
+
+  assert {
+    condition = alltrue([
+      for secret in values(google_secret_manager_secret.main) :
+      length(secret.replication[0].auto) == 0 && length(secret.replication[0].user_managed) == 1
+    ])
+    error_message = "replica_locations must switch every container to user-managed replication"
+  }
+
+  assert {
+    condition = alltrue([
+      for secret in values(google_secret_manager_secret.main) :
+      toset([for replica in secret.replication[0].user_managed[0].replicas : replica.location]) == toset(["us-central1", "europe-west2"])
+    ])
+    error_message = "every container must replicate to exactly the listed locations"
+  }
+}
+
+run "replica_locations_reject_zones" {
+  command = plan
+
+  variables {
+    replica_locations = ["us-central1-a"]
+  }
+
+  expect_failures = [var.replica_locations]
+}

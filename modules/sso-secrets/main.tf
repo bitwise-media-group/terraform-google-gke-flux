@@ -28,6 +28,9 @@ data "google_project" "main" {
 locals {
   prefix = var.secret_prefix != null ? var.secret_prefix : ""
 
+  # null and empty both mean automatic (Google-managed) replication.
+  user_managed = length(coalesce(var.replica_locations, [])) > 0
+
   # container name -> the KSA subject GKE Integrated Secret Synchronization
   # reads it as: one container per field declared in sso.connector.secrets,
   # named by the effective id. A container no sync references is never
@@ -48,8 +51,28 @@ resource "google_secret_manager_secret" "main" {
   secret_id = "${local.prefix}${each.key}"
   labels    = var.labels
 
+  # Google-managed placement unless replica_locations pins the copies to
+  # named regions (data residency, or a cluster that must read in-region).
   replication {
-    auto {}
+    dynamic "auto" {
+      for_each = local.user_managed ? [] : ["true"]
+
+      content {}
+    }
+
+    dynamic "user_managed" {
+      for_each = local.user_managed ? ["true"] : []
+
+      content {
+        dynamic "replicas" {
+          for_each = var.replica_locations
+
+          content {
+            location = replicas.value
+          }
+        }
+      }
+    }
   }
 }
 
