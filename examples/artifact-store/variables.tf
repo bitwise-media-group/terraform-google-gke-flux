@@ -25,3 +25,15 @@ variable "reader_members" {
   type        = list(string)
   default     = []
 }
+
+variable "manifest_publishers" {
+  description = "Manifest-publishing repos, keyed by name: the paths each owns beneath the repository and its numeric repository id (GET /repos/<org>/<repo>; null until the repo exists, and its OIDC subject cannot match without it)."
+  type = map(object({
+    repository_id = optional(number)
+    paths         = list(string)
+  }))
+  default = {
+    flux-manifests           = { paths = ["manifests/*"] }
+    github-arc-app-manifests = { paths = ["manifests/github-arc"] }
+  }
+}

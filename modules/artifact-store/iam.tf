@@ -22,25 +22,44 @@ locals {
   # attribute.publish source) still carries plain names.
   containers_subject_repo = "${var.github.org}@${var.github.org_id}/${var.github.containers}@${var.github.containers_id}"
 
-  # flux-manifests may not exist on GitHub yet when the store is first
-  # applied. Until manifests_id is set, its subject member falls back to the
-  # name-only form — which a post-cutoff repo will never present — so set the
-  # id and re-apply as soon as the repo is created.
-  manifests_subject_repo = (
-    var.github.manifests_id != null
-    ? "${var.github.org}@${var.github.org_id}/${var.github.manifests}@${var.github.manifests_id}"
-    : "${var.github.org}/${var.github.manifests}"
-  )
+  # A manifest-publishing repo may not exist on GitHub yet when the store is
+  # first applied. Until its repository_id is set, its subject members fall
+  # back to the name-only form -- which a post-cutoff repo will never present
+  # -- so set the id and re-apply as soon as the repo is created.
+  manifest_subject_repos = {
+    for repo, publisher in var.github.manifest_publishers : repo => (
+      publisher.repository_id != null
+      ? "${var.github.org}@${var.github.org_id}/${repo}@${publisher.repository_id}"
+      : "${var.github.org}/${repo}"
+    )
+  }
 
-  # Keyed by fixed labels, not member strings: keys stay plan-known even when
-  # var.wif carries computed values (e.g. the pool resource's name output).
-  manifest_publisher_members = {
-    # Release tags publish versioned artifacts and move `staging`.
-    tag = "${local.wif_publish_prefix}/${var.github.org}/${var.github.manifests}:tag"
-    # Merges to main publish the `edge` channel artifact (publish-edge.yaml).
-    main = "${local.wif_principal_prefix}/repo:${local.manifests_subject_repo}:ref:refs/heads/main"
-    # The protected promotion environment moves `stable`.
-    env = "${local.wif_principal_prefix}/repo:${local.manifests_subject_repo}:environment:${var.promotion_environment}"
+  # Every manifest publisher is trusted from the same three contexts, keyed
+  # <repo>:<context> by fixed labels rather than member strings, so keys stay
+  # plan-known even when var.wif carries computed values (e.g. the pool
+  # resource's name output).
+  manifest_publisher_members = merge([
+    for repo, subject_repo in local.manifest_subject_repos : {
+      # Release tags publish versioned artifacts and move `staging`.
+      "${repo}:tag" = "${local.wif_publish_prefix}/${var.github.org}/${repo}:tag"
+      # Merges to main publish the `edge` channel artifact (publish-edge.yaml).
+      "${repo}:main" = "${local.wif_principal_prefix}/repo:${subject_repo}:ref:refs/heads/main"
+      # The protected promotion environment moves `stable`.
+      "${repo}:env" = "${local.wif_principal_prefix}/repo:${subject_repo}:environment:${var.promotion_environment}"
+    }
+  ]...)
+
+  # service account ids cap at 30 characters, too few for <name>-<repo>-...
+  # The platform publisher keeps the id it has always had (its email, and so
+  # the platform repo's GCP_MANIFEST_PUBLISHER_SA variable, survive the move
+  # to one publisher per repo); every other repo gets a stable short hash of
+  # its name. The display name carries the repo either way.
+  manifest_publisher_ids = {
+    for repo in keys(var.github.manifest_publishers) : repo => (
+      repo == var.github.platform
+      ? "${var.name}-manifest-publisher"
+      : "${var.name}-mp-${substr(sha256(repo), 0, 8)}"
+    )
   }
 }
 
@@ -51,11 +70,16 @@ resource "google_service_account" "chart_publisher" {
   description  = "Pushes mirrored charts and images to the ${var.repository_id} repository from GitHub Actions"
 }
 
+# One publisher per manifest-publishing repo (the platform's, and each
+# application's), each the service account its repo's publish workflows
+# impersonate.
 resource "google_service_account" "manifest_publisher" {
+  for_each = var.github.manifest_publishers
+
   project      = var.project
-  account_id   = "${var.name}-manifest-publisher"
-  display_name = "Manifest publisher (${var.github.org}/${var.github.manifests})"
-  description  = "Pushes the signed flux-manifests artifact and moves channel tags from GitHub Actions"
+  account_id   = local.manifest_publisher_ids[each.key]
+  display_name = "Manifest publisher (${var.github.org}/${each.key})"
+  description  = "Pushes ${join(", ", each.value.paths)} in the ${var.repository_id} repository and moves channel tags from GitHub Actions"
 }
 
 # IAM rejects members for a workload identity pool that does not exist yet;
@@ -72,17 +96,24 @@ resource "google_service_account_iam_member" "chart_publisher_wif" {
 resource "google_service_account_iam_member" "manifest_publisher_wif" {
   for_each = local.manifest_publisher_members
 
-  service_account_id = google_service_account.manifest_publisher.name
+  service_account_id = google_service_account.manifest_publisher[split(":", each.key)[0]].name
   role               = "roles/iam.workloadIdentityUser"
   member             = each.value
 }
 
-# Artifact Registry IAM is repository-scoped, so both publishers hold writer on
-# the whole platform repository — arc's per-namespace push separation has no AR
-# equivalent. The effective control is consumer-side verification: every
-# OCIRepository and the Kyverno policy pin the exact signer workflow identity,
-# so a compromised chart publisher pushing a fake manifests artifact still
-# fails verification on the cluster.
+# Artifact Registry IAM is repository-scoped, so every publisher holds writer
+# on the whole platform repository and the declared paths are NOT enforced by
+# IAM. Only repositories accept allow policies, docker pushes are authorized
+# against the repository (artifactregistry.repositories.uploadArtifacts), and
+# Artifact Registry is not among the services whose resource.name IAM
+# Conditions recognize -- a startsWith(resource.name, ".../packages/<path>")
+# condition would never match and deny every push. The effective control is
+# consumer-side verification: the platform's OCIRepository and each
+# application seed pin the exact signer workflow identity of the repo that
+# owns the path, so an application publisher pushing a fake
+# manifests/platform (or another application's image) still fails
+# verification on the cluster. A repository per publisher would make the
+# separation IAM-enforced; that is a layout change this module does not make.
 resource "google_artifact_registry_repository_iam_member" "chart_publisher" {
   project    = var.project
   location   = google_artifact_registry_repository.platform.location
@@ -92,11 +123,13 @@ resource "google_artifact_registry_repository_iam_member" "chart_publisher" {
 }
 
 resource "google_artifact_registry_repository_iam_member" "manifest_publisher" {
+  for_each = google_service_account.manifest_publisher
+
   project    = var.project
   location   = google_artifact_registry_repository.platform.location
   repository = google_artifact_registry_repository.platform.name
   role       = "roles/artifactregistry.writer"
-  member     = google_service_account.manifest_publisher.member
+  member     = each.value.member
 }
 
 # KMS signing mode: cosign signs with gcpkms://<key> from the publish
@@ -107,7 +140,7 @@ resource "google_artifact_registry_repository_iam_member" "manifest_publisher" {
 resource "google_kms_crypto_key_iam_member" "publisher_signing" {
   for_each = {
     for pair in setproduct(
-      var.signing_kms_key_name != null ? ["chart", "manifest"] : [],
+      var.signing_kms_key_name != null ? concat(["chart"], [for repo in keys(var.github.manifest_publishers) : "manifest:${repo}"]) : [],
       ["signerVerifier", "viewer"],
     ) : "${pair[0]}:${pair[1]}" => pair
   }
@@ -117,8 +150,47 @@ resource "google_kms_crypto_key_iam_member" "publisher_signing" {
   member = (
     each.value[0] == "chart"
     ? google_service_account.chart_publisher.member
-    : google_service_account.manifest_publisher.member
+    : google_service_account.manifest_publisher[trimprefix(each.value[0], "manifest:")].member
   )
+}
+
+# Before one publisher per repo, the single flux-manifests publisher and its
+# grants were singletons (and the WIF members keyed by context alone). The
+# platform publisher keeps its account id, so these moves are in-place: no
+# new service account, no new email.
+moved {
+  from = google_service_account.manifest_publisher
+  to   = google_service_account.manifest_publisher["flux-manifests"]
+}
+
+moved {
+  from = google_artifact_registry_repository_iam_member.manifest_publisher
+  to   = google_artifact_registry_repository_iam_member.manifest_publisher["flux-manifests"]
+}
+
+moved {
+  from = google_service_account_iam_member.manifest_publisher_wif["tag"]
+  to   = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:tag"]
+}
+
+moved {
+  from = google_service_account_iam_member.manifest_publisher_wif["main"]
+  to   = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:main"]
+}
+
+moved {
+  from = google_service_account_iam_member.manifest_publisher_wif["env"]
+  to   = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:env"]
+}
+
+moved {
+  from = google_kms_crypto_key_iam_member.publisher_signing["manifest:signerVerifier"]
+  to   = google_kms_crypto_key_iam_member.publisher_signing["manifest:flux-manifests:signerVerifier"]
+}
+
+moved {
+  from = google_kms_crypto_key_iam_member.publisher_signing["manifest:viewer"]
+  to   = google_kms_crypto_key_iam_member.publisher_signing["manifest:flux-manifests:viewer"]
 }
 
 # Read access for cluster identities living in OTHER projects (the store is

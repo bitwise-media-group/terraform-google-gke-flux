@@ -41,18 +41,52 @@ variable "github" {
   description = <<-EOT
     GitHub org and repository names the publisher trust is pinned to, plus the immutable numeric ids GitHub embeds in
     the OIDC subjects of post-2026-07-15 repos (org_id from GET /orgs/<org>, repo ids from GET /repos/<org>/<repo>).
-    manifests_id may stay null until that repo exists on GitHub.
+    containers is the chart/image mirror (flux-containers). manifest_publishers is every repo that publishes manifest
+    images, keyed by repo name: the platform's (paths ["manifests/*"], the platform authority) and one per application
+    repo (paths ["manifests/<app>"]). Each gets its own service account, impersonable from its main branch, its v*
+    release tags and the promotion environment; repository_id may stay null until that repo exists on GitHub.
+    paths is declarative here, NOT enforced by IAM: Artifact Registry authorizes pushes per repository and its IAM
+    Conditions cannot match package paths, so every publisher holds artifactregistry.writer on the whole repository
+    and path ownership is enforced by consumer-side signature verification (each consumer pins the signer workflow
+    of the repo that owns the path). platform names the key that publishes the platform entrypoint: its workflow
+    identities are what signed_identity_subjects exports, and it keeps the <name>-manifest-publisher service account;
+    every other key gets <name>-mp-<8 hex of sha256(repo)> (service account ids cap at 30 characters).
   EOT
   type = object({
     org           = optional(string, "bitwise-media-group")
     org_id        = optional(number, 282673588)
     containers    = optional(string, "flux-containers")
     containers_id = optional(number, 1303643498)
-    manifests     = optional(string, "flux-manifests")
-    manifests_id  = optional(number)
+    platform      = optional(string, "flux-manifests")
+    manifest_publishers = optional(map(object({
+      repository_id = optional(number)
+      paths         = list(string)
+    })), { flux-manifests = { paths = ["manifests/*"] } })
   })
   nullable = false
   default  = {}
+
+  validation {
+    condition     = contains(keys(var.github.manifest_publishers), var.github.platform)
+    error_message = "github.platform must name a key of github.manifest_publishers - the platform entrypoint's publisher is what the clusters' signed_identity_subjects pin."
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in keys(var.github.manifest_publishers) : can(regex("^[A-Za-z0-9._-]+$", repo))
+    ])
+    error_message = "github.manifest_publishers keys must be GitHub repository names."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for publisher in values(var.github.manifest_publishers) : concat(
+        [length(publisher.paths) > 0],
+        [for path in publisher.paths : can(regex("^manifests/(\\*|[a-z0-9._-]+(/[a-z0-9._-]+)*(/\\*)?)$", path))],
+      )
+    ]))
+    error_message = "Each github.manifest_publishers entry needs at least one path beneath manifests/ (e.g. manifests/* or manifests/<app>): lowercase docker path segments, with at most a trailing /* wildcard."
+  }
 }
 
 variable "promotion_environment" {
@@ -85,7 +119,7 @@ variable "wif" {
 variable "signing_kms_key_name" {
   description = <<-EOT
     Asymmetric SIGN Cloud KMS crypto key the publish workflows sign artifacts with (cosign sign --key gcpkms://<name>),
-    instead of keyless Fulcio identities. When set, both publisher service accounts get cloudkms signerVerifier +
+    instead of keyless Fulcio identities. When set, every publisher service account gets cloudkms signerVerifier +
     viewer on the key; feed the same name to the cluster module's signed_identity.kms_key_name so verification
     matches. Null keeps signing keyless (the signed_identity_subjects output). The key itself lives outside this
     module — signing identity should outlive any one store.

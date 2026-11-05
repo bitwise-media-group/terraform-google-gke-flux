@@ -32,29 +32,41 @@ output "workload_identity_provider" {
 }
 
 output "chart_publisher" {
-  description = "Chart publisher service account (email is the service_account input of google-github-actions/auth in flux-containers, set as the GCP_CHART_PUBLISHER_SA / GCP_MANIFEST_PUBLISHER_SA org variables)."
+  description = "Chart publisher service account (email is the service_account input of google-github-actions/auth in flux-containers, set as its GCP_CHART_PUBLISHER_SA variable)."
   value = {
     email  = google_service_account.chart_publisher.email
     member = google_service_account.chart_publisher.member
   }
 }
 
-output "manifest_publisher" {
-  description = "Manifest publisher service account (email is the service_account input of google-github-actions/auth in flux-manifests, set as the GCP_CHART_PUBLISHER_SA / GCP_MANIFEST_PUBLISHER_SA org variables)."
+output "manifest_publishers" {
+  description = <<-EOT
+    One manifest publisher per github.manifest_publishers key: its service account (email is the service_account
+    input of google-github-actions/auth in that repo, its GCP_MANIFEST_PUBLISHER_SA variable), the paths it owns
+    (declarative - see the github variable), and the Fulcio certificate-subject regexps of its publish workflows
+    (release tags and the edge channel) - an application repo's release subject is what its image.verify.subject pins.
+  EOT
   value = {
-    email  = google_service_account.manifest_publisher.email
-    member = google_service_account.manifest_publisher.member
+    for repo, account in google_service_account.manifest_publisher : repo => {
+      email  = account.email
+      member = account.member
+      paths  = var.github.manifest_publishers[repo].paths
+      subjects = {
+        release = "^https://github\\.com/${var.github.org}/${repo}/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+        edge    = "^https://github\\.com/${var.github.org}/${repo}/\\.github/workflows/publish-edge\\.yaml@refs/heads/main$"
+      }
+    }
   }
 }
 
 output "signed_identity_subjects" {
-  description = "Fulcio certificate-subject regexps for the publishing workflows (keyless mode) — feed these to the cluster module's signed_identity variable and the flux-manifests cluster vars. Irrelevant when signing_kms_key_name selects KMS signing."
+  description = "Fulcio certificate-subject regexps for the chart mirror and the platform manifests publisher (github.platform; keyless mode) — feed these to the cluster module's signed_identity variable and the flux-manifests cluster vars. Irrelevant when signing_kms_key_name selects KMS signing. Application publishers' subjects ride in manifest_publishers."
   value = {
     containers = "^https://github\\.com/${var.github.org}/${var.github.containers}/\\.github/workflows/publish\\.yaml@refs/heads/main$"
-    manifests  = "^https://github\\.com/${var.github.org}/${var.github.manifests}/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+    manifests  = "^https://github\\.com/${var.github.org}/${var.github.platform}/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
     # edge channel: dev/sandbox clusters tracking trunk pass this as
     # signed_identity.manifests_subject instead of the release identity above
-    manifests_edge = "^https://github\\.com/${var.github.org}/${var.github.manifests}/\\.github/workflows/publish-edge\\.yaml@refs/heads/main$"
+    manifests_edge = "^https://github\\.com/${var.github.org}/${var.github.platform}/\\.github/workflows/publish-edge\\.yaml@refs/heads/main$"
   }
 }
 

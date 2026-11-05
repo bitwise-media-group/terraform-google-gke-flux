@@ -16,9 +16,9 @@ output "chart_publisher" {
   value       = module.artifact_store.chart_publisher
 }
 
-output "manifest_publisher" {
-  description = "GCP_MANIFEST_PUBLISHER_SA org variable for flux-manifests."
-  value       = module.artifact_store.manifest_publisher
+output "manifest_publishers" {
+  description = "Per manifest-publishing repo: its GCP_MANIFEST_PUBLISHER_SA (email), declared paths and signing subjects."
+  value       = module.artifact_store.manifest_publishers
 }
 
 output "signed_identity_subjects" {

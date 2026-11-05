@@ -26,6 +26,14 @@ module "artifact_store" {
   # creates a pool -- it only binds the publisher SAs to the central one.
   wif = var.github_wif
 
+  # One publisher per manifest-publishing repo: the platform repo keeps
+  # manifests/*, each application repo declares manifests/<app>. A
+  # repository_id stays null until the repo exists on GitHub; set it and
+  # re-apply, or that publisher's subject never matches.
+  github = {
+    manifest_publishers = var.manifest_publishers
+  }
+
   # Cluster identities from other projects that read this registry: each
   # cluster's registry_reader_members output (deterministic from its inputs,
   # so it can be listed before the cluster exists).

@@ -56,8 +56,9 @@ There is no blueprints repo; this is the canonical ordering:
    global static IP, and the org WIF trust anchor (`github_wif` output — the artifact-store module's required `wif`
    input; the pool/provider are never created outside cloud-accounts).
 2. **artifact store** (`examples/artifact-store`): apply as the project's `terraform-apply` SA. Feed its outputs to the
-   publishing repos as the `GCP_WIF_PROVIDER` / `GCP_CHART_PUBLISHER_SA` / `GCP_MANIFEST_PUBLISHER_SA` /
-   `PLATFORM_REGISTRY` org-level Actions variables.
+   publishing repos as the `GCP_WIF_PROVIDER` / `GCP_CHART_PUBLISHER_SA` / `PLATFORM_REGISTRY` Actions variables, and
+   each manifest-publishing repo's `GCP_MANIFEST_PUBLISHER_SA` from its `manifest_publishers` entry (one publisher per
+   repo: the platform's, and each application's).
 3. **flux-containers**: publish every chart + image the platform uses.
 4. **flux-manifests** (>= 4.0.0): cut the first release; its publish workflow pushes the signed `manifests/platform`
    and `manifests/<component>` images and moves the `staging` channel tag (promote moves `stable`).

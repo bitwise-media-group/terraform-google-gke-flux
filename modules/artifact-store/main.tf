@@ -15,8 +15,9 @@
 #
 # Artifact Registry allows arbitrary slash-separated paths beneath a single
 # docker repository, so unlike ECR no per-path repository creation is needed:
-# publishers hold repo-level writer and the pipeline never creates repositories
-# at runtime (arc's ensure-repo.sh has no analogue here).
+# publishers hold repo-level writer (their declared paths are not
+# IAM-enforceable here -- see iam.tf) and the pipeline never creates
+# repositories at runtime (arc's ensure-repo.sh has no analogue here).
 #
 # There is no signing key anywhere in this module: artifacts are cosign-signed
 # KEYLESSLY by the publishing GitHub Actions workflows (OIDC -> Fulcio/Rekor),
