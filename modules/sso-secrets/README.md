@@ -56,13 +56,13 @@ module "sso_secrets" {
 | Name | Version |
 | ---- | ------- |
 | terraform | >= 1.11, < 2.0 |
-| google | >= 7.0, < 8.10 |
+| google | >= 7.0, < 8.11 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| google | >= 7.0, < 8.10 |
+| google | >= 7.0, < 8.11 |
 
 ## Modules
 
