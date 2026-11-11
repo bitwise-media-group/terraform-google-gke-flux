@@ -52,7 +52,7 @@ locals {
 
   # service account ids cap at 30 characters, too few for <name>-<repo>-...
   # The platform publisher keeps the id it has always had (its email, and so
-  # the platform repo's GCP_MANIFEST_PUBLISHER_SA variable, survive the move
+  # the platform repo's GOOGLE_MANIFEST_PUBLISHER_SA variable, survive the move
   # to one publisher per repo); every other repo gets a stable short hash of
   # its name. The display name carries the repo either way.
   manifest_publisher_ids = {

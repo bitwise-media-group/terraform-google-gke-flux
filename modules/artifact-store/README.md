@@ -16,7 +16,7 @@ cloud-accounts and passed in via the required `wif` input — never created here
 **One publisher per repo.** `github.manifest_publishers` declares one service account per manifest-publishing repo,
 impersonable from its `main` branch, its `v*` release tags and the promotion environment (the same three contexts the
 single flux-manifests publisher always had). Each repo sets `manifest_publishers[<repo>].email` as its
-`GCP_MANIFEST_PUBLISHER_SA` variable, and an application's cluster-side `image.verify.subject` pins
+`GOOGLE_MANIFEST_PUBLISHER_SA` variable, and an application's cluster-side `image.verify.subject` pins
 `manifest_publishers[<repo>].subjects.release`. The platform publisher keeps its `<name>-manifest-publisher` service
 account (and email); every other repo's account id is `<name>-mp-<first 8 hex of sha256(repo)>`, since service account
 ids cap at 30 characters.
@@ -35,8 +35,8 @@ Before this release the store knew a single manifests publisher (`github.manifes
 blocks carry that service account and its grants to the `flux-manifests` key in place (same account id, same email).
 
 Apply this once per project, before anything else: the `flux-containers` and `flux-manifests` publish workflows need its
-outputs (as the `GCP_WIF_PROVIDER` / `GCP_CHART_PUBLISHER_SA` / `GCP_MANIFEST_PUBLISHER_SA` /
-`PLATFORM_REGISTRY` Actions variables), and a cluster
+outputs (as the `GOOGLE_WORKLOAD_IDENTITY_PROVIDER` / `GOOGLE_CHART_PUBLISHER_SA` / `GOOGLE_MANIFEST_PUBLISHER_SA` /
+`GOOGLE_PLATFORM_REGISTRY` Actions variables), and a cluster
 cannot bootstrap until those pipelines have populated the registry.
 
 **No tag ever moves.** A channel is its newest immutable build: merges to `main` publish edge builds
@@ -117,14 +117,14 @@ No modules.
 
 | Name | Description |
 | ---- | ----------- |
-| chart\_publisher | Chart publisher service account (email is the service\_account input of google-github-actions/auth in flux-containers, set as its GCP\_CHART\_PUBLISHER\_SA variable). |
+| chart\_publisher | Chart publisher service account (email is the service\_account input of google-github-actions/auth in flux-containers, set as its GOOGLE\_CHART\_PUBLISHER\_SA variable). |
 | chart\_repository\_prefix | OCI prefix mirrored charts are published under (charts/<name> appended per chart). |
 | image\_repository\_prefix | Registry prefix mirrored images are published under (images/<original-path> appended per image). |
 | manifest\_artifact\_url | OCI url of the platform entrypoint image the clusters sync (manifests/platform; the components and applications it seeds sit beside it under manifests/<name>). |
-| manifest\_publishers | One manifest publisher per github.manifest\_publishers key: its service account (email is the service\_account<br/>input of google-github-actions/auth in that repo, its GCP\_MANIFEST\_PUBLISHER\_SA variable), the paths it owns<br/>(declarative - see the github variable), and the Fulcio certificate-subject regexps of its publish workflows<br/>(release tags and the edge channel) - an application repo's release subject is what its image.verify.subject pins. |
+| manifest\_publishers | One manifest publisher per github.manifest\_publishers key: its service account (email is the service\_account<br/>input of google-github-actions/auth in that repo, its GOOGLE\_MANIFEST\_PUBLISHER\_SA variable), the paths it owns<br/>(declarative - see the github variable), and the Fulcio certificate-subject regexps of its publish workflows<br/>(release tags and the edge channel) - an application repo's release subject is what its image.verify.subject pins. |
 | platform\_registry | The platform registry prefix — the value of the cluster's platform\_registry variable and the PLATFORM\_REGISTRY cluster var. |
 | registry\_host | Registry hostname for docker/helm/crane login (oauth2accesstoken + access token). |
 | signed\_identity\_subjects | Fulcio certificate-subject regexps for the chart mirror and the platform manifests publisher (github.platform; keyless mode) — feed these to the cluster module's signed\_identity variable and the flux-manifests cluster vars. Irrelevant when signing\_kms\_key\_name selects KMS signing. Application publishers' subjects ride in manifest\_publishers. |
 | signing\_kms\_key\_name | The Cloud KMS signing key the publishers sign with (null in keyless mode) — feed it to the cluster module's signed\_identity.kms\_key\_name so verification matches. |
-| workload\_identity\_provider | Full WIF provider resource name — the workload\_identity\_provider input of google-github-actions/auth (set as the GCP\_WIF\_PROVIDER repo variable in the publishing repos). |
+| workload\_identity\_provider | Full WIF provider resource name — the workload\_identity\_provider input of google-github-actions/auth (set as the GOOGLE\_WORKLOAD\_IDENTITY\_PROVIDER repo variable in the publishing repos). |
 <!-- END_TF_DOCS -->

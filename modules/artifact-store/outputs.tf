@@ -27,12 +27,12 @@ output "manifest_artifact_url" {
 }
 
 output "workload_identity_provider" {
-  description = "Full WIF provider resource name — the workload_identity_provider input of google-github-actions/auth (set as the GCP_WIF_PROVIDER repo variable in the publishing repos)."
+  description = "Full WIF provider resource name — the workload_identity_provider input of google-github-actions/auth (set as the GOOGLE_WORKLOAD_IDENTITY_PROVIDER repo variable in the publishing repos)."
   value       = var.wif.provider_name
 }
 
 output "chart_publisher" {
-  description = "Chart publisher service account (email is the service_account input of google-github-actions/auth in flux-containers, set as its GCP_CHART_PUBLISHER_SA variable)."
+  description = "Chart publisher service account (email is the service_account input of google-github-actions/auth in flux-containers, set as its GOOGLE_CHART_PUBLISHER_SA variable)."
   value = {
     email  = google_service_account.chart_publisher.email
     member = google_service_account.chart_publisher.member
@@ -42,7 +42,7 @@ output "chart_publisher" {
 output "manifest_publishers" {
   description = <<-EOT
     One manifest publisher per github.manifest_publishers key: its service account (email is the service_account
-    input of google-github-actions/auth in that repo, its GCP_MANIFEST_PUBLISHER_SA variable), the paths it owns
+    input of google-github-actions/auth in that repo, its GOOGLE_MANIFEST_PUBLISHER_SA variable), the paths it owns
     (declarative - see the github variable), and the Fulcio certificate-subject regexps of its publish workflows
     (release tags and the edge channel) - an application repo's release subject is what its image.verify.subject pins.
   EOT
