@@ -12,6 +12,11 @@ url: ""
 # range matching no tag empties the ResourceSet and prunes the application.
 semver: ">=0.0.0"
 
+# A tag regexp narrowing the semver range to one channel's immutable builds
+# (^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$ with semver
+# >=0.0.0-0 follows edge). Empty filters on semver alone.
+includeTag: ""
+
 # How often the input provider re-lists tags and the Kustomization reconciles.
 interval: 30m
 

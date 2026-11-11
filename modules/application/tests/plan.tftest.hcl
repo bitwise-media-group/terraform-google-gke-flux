@@ -79,6 +79,11 @@ run "platform_image_seed" {
     error_message = "the seed waits for kyverno-policies by default and needs no pull secret on the platform registry"
   }
 
+  assert {
+    condition     = yamldecode(helm_release.seed.values[0]).semver == "<1.0.0 >=0.1.0" && yamldecode(helm_release.seed.values[0]).includeTag == ""
+    error_message = "without a channel the seed follows the semver range, and the chart gets no tag filter"
+  }
+
   # Nothing to render: no vars, no namespaces, no inputs release.
   assert {
     condition     = length(helm_release.inputs) == 0
@@ -153,6 +158,110 @@ run "keyed_seed" {
     condition     = yamldecode(helm_release.seed.values[0]).verify.keyed == true && yamldecode(helm_release.seed.values[0]).verify.subject == "" && yamldecode(helm_release.seed.values[0]).verify.issuer == ""
     error_message = "keyed mode hands the chart the keyed flag and no keyless identity - the chart then verifies against the cosign-pub Secret"
   }
+}
+
+run "channel_seed" {
+  command = plan
+
+  variables {
+    image = {
+      url     = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+      channel = "edge"
+      verify  = { subject = "^https://github\\.com/org/demo/.+$" }
+    }
+  }
+
+  # A channel is its newest immutable build: every pre-release, narrowed to
+  # the channel's builds.
+  assert {
+    condition = (
+      yamldecode(helm_release.seed.values[0]).semver == ">=0.0.0-0"
+      && yamldecode(helm_release.seed.values[0]).includeTag == "^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+    )
+    error_message = "edge must follow every pre-release, narrowed to the edge builds"
+  }
+}
+
+run "staging_seed" {
+  command = plan
+
+  variables {
+    image = {
+      url     = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+      channel = "staging"
+      verify  = { subject = "^https://github\\.com/org/demo/.+$" }
+    }
+  }
+
+  assert {
+    condition = (
+      yamldecode(helm_release.seed.values[0]).semver == ">=0.0.0-0"
+      && yamldecode(helm_release.seed.values[0]).includeTag == "^[0-9]+[.][0-9]+[.][0-9]+-staging[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+    )
+    error_message = "staging must follow every pre-release, narrowed to the staging builds"
+  }
+}
+
+run "stable_seed" {
+  command = plan
+
+  variables {
+    image = {
+      url     = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+      channel = "stable"
+      verify  = { subject = "^https://github\\.com/org/demo/.+$" }
+    }
+  }
+
+  assert {
+    condition     = yamldecode(helm_release.seed.values[0]).semver == ">=0.0.0" && yamldecode(helm_release.seed.values[0]).includeTag == ""
+    error_message = "stable must follow every plain release (>=0.0.0 excludes pre-releases) with no tag filter"
+  }
+}
+
+run "default_semver" {
+  command = plan
+
+  variables {
+    image = {
+      url    = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+      verify = { subject = "^https://github\\.com/org/demo/.+$" }
+    }
+  }
+
+  assert {
+    condition     = yamldecode(helm_release.seed.values[0]).semver == ">=0.0.0" && yamldecode(helm_release.seed.values[0]).includeTag == ""
+    error_message = "with neither semver nor channel the seed follows every release"
+  }
+}
+
+run "invalid_channel" {
+  command = plan
+
+  variables {
+    image = {
+      url     = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+      channel = "nightly"
+      verify  = { subject = "^https://github\\.com/org/demo/.+$" }
+    }
+  }
+
+  expect_failures = [var.image]
+}
+
+run "semver_and_channel" {
+  command = plan
+
+  variables {
+    image = {
+      url     = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+      semver  = "<1.0.0 >=0.1.0"
+      channel = "edge"
+      verify  = { subject = "^https://github\\.com/org/demo/.+$" }
+    }
+  }
+
+  expect_failures = [var.image]
 }
 
 run "inputs_release" {
