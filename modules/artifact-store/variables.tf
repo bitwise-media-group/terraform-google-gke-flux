@@ -90,7 +90,7 @@ variable "github" {
 }
 
 variable "promotion_environment" {
-  description = "GitHub environment (protected, reviewer-gated) whose jobs may move the stable channel tag."
+  description = "GitHub environment (protected, reviewer-gated) whose jobs promote a staging build to stable (its vX.Y.Z tag)."
   type        = string
   nullable    = false
   default     = "production"
@@ -146,6 +146,39 @@ variable "reader_members" {
   type        = list(string)
   nullable    = false
   default     = []
+}
+
+variable "build_retention_count" {
+  description = <<-EOT
+    How many of the newest versions of each package (manifests/<name>, and every mirrored chart and image) are kept
+    regardless of age. Artifact Registry counts per package, not per channel, so edge and staging builds share this
+    count: it must cover the edge builds landed since the newest staging build that has not been promoted yet, or
+    that build ages out after build_expiry_days. Promoted releases (v* tags) are kept regardless.
+  EOT
+  type        = number
+  nullable    = false
+  default     = 20
+
+  validation {
+    condition     = var.build_retention_count >= 1
+    error_message = "build_retention_count must be at least 1: the newest build is what the edge channel follows."
+  }
+}
+
+variable "build_expiry_days" {
+  description = <<-EOT
+    Days after push at which a tagged manifest image -- an edge, staging or sha-<commit> build -- outside the newest
+    build_retention_count of its package and never promoted (no v* tag) is deleted. Mirrored charts and images are
+    never aged out.
+  EOT
+  type        = number
+  nullable    = false
+  default     = 30
+
+  validation {
+    condition     = var.build_expiry_days >= 1
+    error_message = "build_expiry_days must be at least 1."
+  }
 }
 
 variable "untagged_expiry_days" {

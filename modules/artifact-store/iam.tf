@@ -40,11 +40,12 @@ locals {
   # resource's name output).
   manifest_publisher_members = merge([
     for repo, subject_repo in local.manifest_subject_repos : {
-      # Release tags publish versioned artifacts and move `staging`.
+      # Release tags publish staging builds. No tag ever moves.
       "${repo}:tag" = "${local.wif_publish_prefix}/${var.github.org}/${repo}:tag"
-      # Merges to main publish the `edge` channel artifact (publish-edge.yaml).
+      # Merges to main publish edge builds (publish-edge.yaml).
       "${repo}:main" = "${local.wif_principal_prefix}/repo:${subject_repo}:ref:refs/heads/main"
-      # The protected promotion environment moves `stable`.
+      # The protected promotion environment adds the stable vX.Y.Z tag to a
+      # staging build.
       "${repo}:env" = "${local.wif_principal_prefix}/repo:${subject_repo}:environment:${var.promotion_environment}"
     }
   ]...)

@@ -29,14 +29,55 @@ run "repository" {
     error_message = "platform repository must be a docker repository"
   }
 
+  # No tag moves, but the registry cannot enforce it: immutable_tags stops
+  # cleanup policies deleting any tagged artifact, so old builds would never
+  # age out.
   assert {
     condition     = google_artifact_registry_repository.platform.docker_config[0].immutable_tags == false
-    error_message = "channel tags (staging/stable) must be able to move: immutable_tags stays off"
+    error_message = "immutable_tags stays off so cleanup policies can age out old builds; tags are immutable by contract"
+  }
+
+  # Keep policies win over delete policies: promoted releases and the newest
+  # builds of every package are the protection.
+  assert {
+    condition = (
+      one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "keep-releases"]).action == "KEEP"
+      && one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "keep-releases"]).condition).tag_state == "TAGGED"
+      && one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "keep-releases"]).condition).tag_prefixes == tolist(["v"])
+    )
+    error_message = "every promoted release (v* tag) must be kept"
   }
 
   assert {
-    condition     = one(google_artifact_registry_repository.platform.cleanup_policies).id == "expire-untagged"
-    error_message = "untagged manifests must expire via the cleanup policy"
+    condition = (
+      one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "keep-recent-builds"]).action == "KEEP"
+      && one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "keep-recent-builds"]).most_recent_versions).keep_count == 20
+    )
+    error_message = "the newest 20 versions of every package must be kept regardless of age"
+  }
+
+  assert {
+    condition = (
+      one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "expire-builds"]).action == "DELETE"
+      && one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "expire-builds"]).condition).tag_state == "TAGGED"
+      && one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "expire-builds"]).condition).package_name_prefixes == tolist(["manifests"])
+      && one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "expire-builds"]).condition).older_than == "2592000s"
+    )
+    error_message = "tagged manifest builds no keep policy shields must expire after 30 days, and only under manifests (mirrored charts and images are pinned by digest)"
+  }
+
+  assert {
+    condition = (
+      one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "expire-untagged"]).action == "DELETE"
+      && one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "expire-untagged"]).condition).tag_state == "UNTAGGED"
+      && one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "expire-untagged"]).condition).older_than == "1209600s"
+    )
+    error_message = "untagged manifests must expire after 14 days"
+  }
+
+  assert {
+    condition     = length(google_artifact_registry_repository.platform.cleanup_policies) == 4
+    error_message = "exactly the two keep and two delete policies"
   }
 
   assert {
@@ -55,22 +96,22 @@ run "wif_trust" {
 
   assert {
     condition     = sort(keys(google_service_account_iam_member.manifest_publisher_wif)) == tolist(["flux-manifests:env", "flux-manifests:main", "flux-manifests:tag"])
-    error_message = "manifest publishing must admit exactly the release-tag, edge-channel and promotion-environment principals"
+    error_message = "manifest publishing must admit exactly the release-tag, edge-build and promotion-environment principals"
   }
 
   assert {
     condition     = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:main"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group/flux-manifests:ref:refs/heads/main"
-    error_message = "merges to the flux-manifests default branch must be able to publish the edge channel"
+    error_message = "merges to the flux-manifests default branch must be able to publish edge builds"
   }
 
   assert {
     condition     = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:tag"].member == "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/attribute.publish/bitwise-media-group/flux-manifests:tag"
-    error_message = "release tags must be able to publish the manifests artifact"
+    error_message = "release tags must be able to publish staging builds"
   }
 
   assert {
     condition     = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:env"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group/flux-manifests:environment:production"
-    error_message = "only the protected production environment may move the stable channel"
+    error_message = "only the protected production environment may promote a staging build to stable"
   }
 
   assert {
@@ -306,4 +347,31 @@ run "publisher_needs_a_path" {
   }
 
   expect_failures = [var.github]
+}
+
+run "retention_is_tunable" {
+  command = plan
+
+  variables {
+    build_retention_count = 50
+    build_expiry_days     = 7
+  }
+
+  assert {
+    condition = (
+      one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "keep-recent-builds"]).most_recent_versions).keep_count == 50
+      && one(one([for p in google_artifact_registry_repository.platform.cleanup_policies : p if p.id == "expire-builds"]).condition).older_than == "604800s"
+    )
+    error_message = "the retention count and build expiry must come from their variables"
+  }
+}
+
+run "retention_keeps_the_newest_build" {
+  command = plan
+
+  variables {
+    build_retention_count = 0
+  }
+
+  expect_failures = [var.build_retention_count]
 }
