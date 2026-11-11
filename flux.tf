@@ -22,6 +22,25 @@ locals {
   # guarantee exactly one.
   signing_kms = var.signed_identity.kms_key_name != null
 
+  # Release channels as immutable builds: no tag ever moves. Every merge to
+  # main publishes <base>-edge.<UTC yyyymmddhhmmss>.g<short commit>, every
+  # release X.Y.Z-staging.<UTC yyyymmddhhmmss>.g<short commit>, and promotion
+  # adds the plain vX.Y.Z to the staging build. A channel is therefore a
+  # semver range plus a tag regexp ([.] so nothing needs escaping through
+  # HCL, YAML or substitution): edge and staging take the newest matching
+  # pre-release; stable is >=0.0.0, which excludes pre-releases; anything
+  # else (a pinned vX.Y.Z or a full build tag) is followed verbatim.
+  channel_build_regexps = {
+    edge    = "^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+    staging = "^[0-9]+[.][0-9]+[.][0-9]+-staging[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+  }
+  sync_semver = (
+    contains(keys(local.channel_build_regexps), var.flux.sync.ref) ? ">=0.0.0-0"
+    : var.flux.sync.ref == "stable" ? ">=0.0.0"
+    : var.flux.sync.ref
+  )
+  sync_semver_filter = lookup(local.channel_build_regexps, var.flux.sync.ref, "")
+
   # Charts, tag listings and the sync artifact all pull straight from the
   # platform registry; pods pull mirrored images from the same place (single
   # co-located registry — no pull-through cache, arc's local-registry mode).
@@ -102,13 +121,17 @@ locals {
     # The platform's flux component (flux managing flux) re-renders the
     # FluxInstance this module bootstraps: it needs the manifests signing
     # subject for the sync verify patch, the release channel for sync.ref
-    # (and for every component source the entrypoint emits), the sync url
-    # and the per-cloud tree -- all otherwise trapped inside this module's
+    # and the semver range and tag regexp (FLUX_SYNC_SEMVER, and
+    # FLUX_SYNC_SEMVER_FILTER, empty for stable or a pin) the sync and every
+    # component source the entrypoint emits follow it by, the sync url and
+    # the per-cloud tree -- all otherwise trapped inside this module's
     # bootstrap-only helm values. Publishing FLUX_SYNC_URL is what lets a
     # running cluster be re-pointed: the flux component asserts it on the
     # FluxInstance, so a changed var moves the sync without a kubectl patch.
     SIGNED_IDENTITY_MANIFESTS = local.signing_kms ? "" : var.signed_identity.manifests_subject
     FLUX_SYNC_CHANNEL         = var.flux.sync.ref
+    FLUX_SYNC_SEMVER          = local.sync_semver
+    FLUX_SYNC_SEMVER_FILTER   = local.sync_semver_filter
     FLUX_SYNC_URL             = local.sync_url
     PLATFORM_TREE             = var.flux.sync.path
 
@@ -218,10 +241,12 @@ module "flux_operator" {
     artifact = var.flux.distribution.artifact
   }
   sync = {
-    url      = local.sync_url
-    ref      = var.flux.sync.ref
-    path     = var.flux.sync.path
-    interval = var.flux.sync.interval
+    url           = local.sync_url
+    ref           = var.flux.sync.ref
+    semver        = local.sync_semver
+    semver_filter = local.sync_semver_filter
+    path          = var.flux.sync.path
+    interval      = var.flux.sync.interval
   }
 
   applications     = local.applications

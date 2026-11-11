@@ -141,6 +141,30 @@ locals {
     }
   ]
 
+  # FluxInstance spec.sync renders ref as the OCIRepository's tag only, so a
+  # channel followed as a semver range (the newest immutable build, nothing
+  # ever moving) rides in as a patch replacing the generated spec.ref;
+  # source-controller takes the semver over a tag anyway, and the filter
+  # narrows the range to one channel's pre-releases.
+  sync_ref_patches = var.sync.semver == null ? [] : [
+    {
+      patch = yamlencode([
+        {
+          op   = "add"
+          path = "/spec/ref"
+          value = merge(
+            { semver = var.sync.semver },
+            var.sync.semver_filter == "" ? {} : { semverFilter = var.sync.semver_filter },
+          )
+        }
+      ])
+      target = {
+        kind = "OCIRepository"
+        name = var.namespace
+      }
+    }
+  ]
+
   # FluxInstance spec.sync has no substitution field either, so the generated
   # Kustomization that applies the platform entrypoint substitutes from
   # cluster-vars by patch, like every Kustomization the entrypoint emits. An
@@ -239,7 +263,7 @@ resource "helm_release" "flux_instance" {
           interval = var.sync.interval
         }
         kustomize = {
-          patches = concat(local.controller_patches, local.sync_verify_patches, local.sync_substitution_patches, var.kustomize_patches)
+          patches = concat(local.controller_patches, local.sync_verify_patches, local.sync_ref_patches, local.sync_substitution_patches, var.kustomize_patches)
         }
       }
     })

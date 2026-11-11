@@ -757,7 +757,11 @@ variable "flux" {
   description = <<-EOT
     Flux bootstrap knobs. Chart repositories, the distribution registry and the sync url default onto platform_registry;
     sync.ref picks the release channel (stable, staging, or edge for dev clusters tracking trunk -- pair edge with the
-    manifests_edge signing subject); sync.url defaults to the platform entrypoint image
+    manifests_edge signing subject). No tag moves: a channel is its newest immutable build, edge
+    <base>-edge.<UTC yyyymmddhhmmss>.g<short commit>, staging X.Y.Z-staging.<UTC yyyymmddhhmmss>.g<short commit>, and
+    stable the plain vX.Y.Z promotion adds, so the sync follows a semver range (patched onto the sync OCIRepository)
+    published as FLUX_SYNC_SEMVER with its tag regexp as FLUX_SYNC_SEMVER_FILTER (empty for stable); a pinned vX.Y.Z or
+    full build tag is followed verbatim. sync.url defaults to the platform entrypoint image
     oci://<platform_registry>/manifests/platform (flux-manifests >= 4.0.0), published as FLUX_SYNC_URL so the
     platform's flux component can re-point a running cluster; sync.path selects the per-cloud tree inside it
     ("google"), published as PLATFORM_TREE and the default ./deploy/<path> of every application image. namespaces are
@@ -791,8 +795,12 @@ variable "flux" {
   default  = {}
 
   validation {
-    condition     = contains(["stable", "staging", "edge"], var.flux.sync.ref) || can(regex("^v", var.flux.sync.ref))
-    error_message = "flux.sync.ref must be a channel tag (stable, staging, edge) or a pinned version tag (vX.Y.Z)."
+    condition = (
+      contains(["stable", "staging", "edge"], var.flux.sync.ref)
+      || can(regex("^v", var.flux.sync.ref))
+      || can(regex("^[0-9]+[.][0-9]+[.][0-9]+-(edge|staging)[.][0-9]{14}[.]g[0-9a-f]{7,40}$", var.flux.sync.ref))
+    )
+    error_message = "flux.sync.ref must be a channel (stable, staging, edge), a pinned version tag (vX.Y.Z) or a full build tag (X.Y.Z-edge.<yyyymmddhhmmss>.g<commit>)."
   }
 }
 

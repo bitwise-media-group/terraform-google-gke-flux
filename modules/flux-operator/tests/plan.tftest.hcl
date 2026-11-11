@@ -120,6 +120,65 @@ run "keyed_verification" {
   }
 }
 
+run "sync_keeps_its_tag_without_semver" {
+  command = plan
+
+  assert {
+    condition     = length(local.sync_ref_patches) == 0
+    error_message = "without sync.semver the generated OCIRepository keeps sync.ref as its tag"
+  }
+}
+
+run "sync_follows_a_channel_by_semver" {
+  command = plan
+
+  # FluxInstance renders sync.ref as the tag alone; a channel's newest
+  # immutable build rides in as a semver range and filter on spec.ref.
+  variables {
+    sync = {
+      url           = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/platform"
+      ref           = "edge"
+      semver        = ">=0.0.0-0"
+      semver_filter = "^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+      path          = "google"
+    }
+  }
+
+  assert {
+    condition = (
+      yamldecode(local.sync_ref_patches[0].patch)[0].path == "/spec/ref"
+      && yamldecode(local.sync_ref_patches[0].patch)[0].value.semver == ">=0.0.0-0"
+      && yamldecode(local.sync_ref_patches[0].patch)[0].value.semverFilter == "^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+      && local.sync_ref_patches[0].target.kind == "OCIRepository"
+      && local.sync_ref_patches[0].target.name == "flux-system"
+    )
+    error_message = "the channel must replace the sync OCIRepository's spec.ref with its semver range and filter"
+  }
+
+  assert {
+    condition     = contains([for p in yamldecode(helm_release.flux_instance.values[0]).instance.kustomize.patches : p.patch], local.sync_ref_patches[0].patch)
+    error_message = "the ref patch must reach the FluxInstance"
+  }
+}
+
+run "sync_stable_has_no_filter" {
+  command = plan
+
+  variables {
+    sync = {
+      url    = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/platform"
+      ref    = "stable"
+      semver = ">=0.0.0"
+      path   = "google"
+    }
+  }
+
+  assert {
+    condition     = yamldecode(local.sync_ref_patches[0].patch)[0].value == { semver = ">=0.0.0" }
+    error_message = "stable is a plain range (pre-releases excluded) with no semverFilter"
+  }
+}
+
 run "sync_substitutes_cluster_vars" {
   command = plan
 

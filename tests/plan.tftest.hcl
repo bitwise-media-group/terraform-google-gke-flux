@@ -480,6 +480,11 @@ run "cluster_vars_contract" {
   }
 
   assert {
+    condition     = output.flux.cluster_vars.FLUX_SYNC_SEMVER == ">=0.0.0" && output.flux.cluster_vars.FLUX_SYNC_SEMVER_FILTER == ""
+    error_message = "the default stable channel follows every plain release (>=0.0.0 excludes pre-releases) with no tag filter"
+  }
+
+  assert {
     condition     = output.flux.cluster_vars.SIGNED_IDENTITY_MANIFESTS == "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
     error_message = "the manifests signing subject must be published for the stack's sync verify patch"
   }
@@ -559,6 +564,61 @@ run "cluster_vars_contract" {
     condition     = length(module.flux_operator.applications) == 0 && length(output.flux.applications) == 0
     error_message = "a cluster with no applications seeds nothing - the platform alone is a complete deployment"
   }
+}
+
+run "sync_channel_edge" {
+  command = plan
+
+  variables {
+    flux = { sync = { ref = "edge" } }
+  }
+
+  assert {
+    condition = (
+      output.flux.cluster_vars.FLUX_SYNC_SEMVER == ">=0.0.0-0"
+      && output.flux.cluster_vars.FLUX_SYNC_SEMVER_FILTER == "^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+    )
+    error_message = "edge follows its newest immutable build: every pre-release, narrowed to the edge builds"
+  }
+}
+
+run "sync_channel_staging" {
+  command = plan
+
+  variables {
+    flux = { sync = { ref = "staging" } }
+  }
+
+  assert {
+    condition = (
+      output.flux.cluster_vars.FLUX_SYNC_SEMVER == ">=0.0.0-0"
+      && output.flux.cluster_vars.FLUX_SYNC_SEMVER_FILTER == "^[0-9]+[.][0-9]+[.][0-9]+-staging[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+    )
+    error_message = "staging follows its newest immutable build: every pre-release, narrowed to the staging builds"
+  }
+}
+
+run "sync_pinned_build" {
+  command = plan
+
+  variables {
+    flux = { sync = { ref = "1.4.0-staging.20261112090000.g1a2b3c4" } }
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.FLUX_SYNC_SEMVER == "1.4.0-staging.20261112090000.g1a2b3c4" && output.flux.cluster_vars.FLUX_SYNC_SEMVER_FILTER == ""
+    error_message = "a pinned build tag is followed verbatim, with no filter"
+  }
+}
+
+run "sync_rejects_a_moving_tag" {
+  command = plan
+
+  variables {
+    flux = { sync = { ref = "latest" } }
+  }
+
+  expect_failures = [var.flux]
 }
 
 run "stack_contract_kms_signing" {

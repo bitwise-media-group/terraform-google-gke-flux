@@ -59,12 +59,19 @@ variable "distribution" {
 }
 
 variable "sync" {
-  description = "Cluster sync source: the platform entrypoint image in the platform registry and the per-cloud tree within it."
+  description = <<-EOT
+    Cluster sync source: the platform entrypoint image in the platform registry and the per-cloud tree within it.
+    ref is the FluxInstance's sync ref (a channel name or a version). semver, when set, is patched onto the
+    generated OCIRepository's spec.ref in place of that tag (with semver_filter as its semverFilter when non-empty),
+    so the sync follows the newest immutable build of a channel rather than one moving tag; null keeps ref as the tag.
+  EOT
   type = object({
-    url      = string # oci://<registry>/manifests/platform
-    ref      = string # channel tag (stable, staging) or exact version
-    path     = string # the per-cloud tree ("google" for this module)
-    interval = optional(string, "5m")
+    url           = string # oci://<registry>/manifests/platform
+    ref           = string # channel (stable, staging, edge) or exact version
+    semver        = optional(string)
+    semver_filter = optional(string, "")
+    path          = string # the per-cloud tree ("google" for this module)
+    interval      = optional(string, "5m")
   })
   nullable = false
 }
@@ -150,7 +157,8 @@ variable "signed_identity" {
 variable "kustomize_patches" {
   description = <<-EOT
     Extra kustomize patches applied to the generated Flux instance objects, on top of the built-in controller
-    nodeSelector, flux-system OCIRepository verify and flux-system Kustomization cluster-vars substitution patches.
+    nodeSelector, flux-system OCIRepository verify and ref and flux-system Kustomization cluster-vars substitution
+    patches.
   EOT
   type        = list(any)
   nullable    = false
