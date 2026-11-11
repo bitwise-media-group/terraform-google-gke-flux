@@ -411,18 +411,18 @@ alone, so bump the version in the same apply to keep both halves of the pair in 
 
 | Name | Version |
 | ---- | ------- |
-| terraform | >= 1.11, < 2.0 |
-| google | >= 7.46, < 8.11 |
-| google-beta | >= 7.33, < 8.11 |
-| helm | ~> 3.0 |
-| random | >= 3.7, < 4.0 |
+| terraform | >= 1.11, < 2 |
+| google | >= 7.46, < 9 |
+| google-beta | >= 7.33, < 9 |
+| helm | >= 3.0, < 4 |
+| random | >= 3.7, < 4 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| google | >= 7.46, < 8.11 |
-| google-beta | >= 7.33, < 8.11 |
+| google | >= 7.46, < 9 |
+| google-beta | >= 7.33, < 9 |
 
 ## Modules
 

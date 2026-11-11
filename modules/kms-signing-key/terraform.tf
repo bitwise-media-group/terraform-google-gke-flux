@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: MIT
 
 terraform {
-  required_version = ">= 1.11, < 2.0"
+  required_version = ">= 1.11, < 2"
 
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = ">= 7.0, < 8.11"
+      version = ">= 7.0, < 9"
     }
   }
 }

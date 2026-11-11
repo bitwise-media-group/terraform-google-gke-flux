@@ -52,16 +52,16 @@ another release owns - but the IAM members don't: an IAM member binding is share
 
 | Name | Version |
 | ---- | ------- |
-| terraform | >= 1.11, < 2.0 |
-| google | >= 7.46, < 8.11 |
-| helm | ~> 3.0 |
+| terraform | >= 1.11, < 2 |
+| google | >= 7.0, < 9 |
+| helm | >= 3.0, < 4 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| google | >= 7.46, < 8.11 |
-| helm | ~> 3.0 |
+| google | >= 7.0, < 9 |
+| helm | >= 3.0, < 4 |
 
 ## Modules
 

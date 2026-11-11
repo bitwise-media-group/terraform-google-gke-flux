@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: MIT
 
 terraform {
-  required_version = ">= 1.11, < 2.0"
+  required_version = ">= 1.11, < 2"
 
   required_providers {
     # 7.46 is the oldest release this module is verified against with the
     # workforce pool provider's write-only client secret (kubectl.tf).
     google = {
       source  = "hashicorp/google"
-      version = ">= 7.46, < 8.11"
+      version = ">= 7.46, < 9"
     }
     # The cluster resource alone rides the beta provider (a lockstep superset
     # of google): managed_opentelemetry_config has not been promoted to GA.
@@ -17,16 +17,16 @@ terraform {
     # secret_sync_config to the cluster resource.
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = ">= 7.33, < 8.11"
+      version = ">= 7.33, < 9"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "~> 3.0"
+      version = ">= 3.0, < 4"
     }
     # The ephemeral dex client secrets (sso.tf, kubectl.tf).
     random = {
       source  = "hashicorp/random"
-      version = ">= 3.7, < 4.0"
+      version = ">= 3.7, < 4"
     }
   }
 }
