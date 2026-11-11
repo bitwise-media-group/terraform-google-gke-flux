@@ -70,25 +70,27 @@ variable "cluster" {
 
 variable "image" {
   description = <<-EOT
-    The application's manifest image, exactly as a cluster root applications entry. Becomes one bootstrap-only
-    seed: a ResourceSetInputProvider and ResourceSet named <name>-manifests that resolve the newest tag matching
-    semver (or the channel), verify the image's cosign signature and apply path from it as Kustomization <name>. The
-    image ships the same two seed objects under flux/ and owns them from its first reconcile, so a new application
-    release never needs a terraform apply; the seed is applied once and then ignored (ignore_changes). Destroying
-    the module uninstalls the seed and prunes the application.
+    The application's manifest image. Becomes one seed, application-<name>: a ResourceSetInputProvider and
+    ResourceSet named <name>-manifests that resolve the newest tag matching semver (or the channel), verify the
+    image's cosign signature and apply path from it as Kustomization <name>. Unlike a cluster root applications
+    entry, terraform owns both objects on every apply, so the range or channel moves in the same apply as the
+    infrastructure the application's next release needs. The image must not ship its own copies of them (flux/), or
+    its Kustomization re-applies them on every reconcile and fights this module. Destroying the module uninstalls
+    the seed and prunes the application.
       - url: the image without a tag or digest. An Artifact Registry url must live under cluster.platform_registry
         (the flux controllers pull it with their Workload Identity and list its tags through the Artifact Registry
         API); any other registry is listed and pulled generically, optionally with pull_secret (a
         kubernetes.io/dockerconfigjson Secret in the flux namespace that both the tag listing and the pull read).
-      - semver: the tag range the seed follows (default >=0.0.0 when channel is unset); a range matching no tag
-        prunes the application.
-      - channel: edge or stable, followed in place of semver, so a cluster can bootstrap from a channel before any
-        release exists. No tag moves: a channel is its newest immutable build, edge <next version>-edge.<UTC
-        yyyymmddhhmmss>.g<short commit> (0.1.0-edge.20261109153012.g70d3589) from every push to main that cuts no
-        release, stable the plain vX.Y.Z that cutting a release adds to the newest edge build of that version. edge
-        follows semver >=0.0.0-0 narrowed by an includeTag regexp for its builds; stable follows >=0.0.0, which
-        excludes pre-releases. Set at most one of semver and channel. The image's flux/ copy must publish the same
-        filter or it re-points the application on its first reconcile.
+      - semver: the tag range the seed follows (default >=0.0.0, every release); a range matching no tag prunes the
+        application. With channel edge it bounds the channel instead, and needs a pre-release bound because edge
+        builds are pre-releases: ^1.0.0-0 follows every edge build up to the next breaking change (on 0.x,
+        ^0.2.0-0 stops before the next minor).
+      - channel: edge or stable, so a cluster can follow a channel before any release exists. No tag moves: a
+        channel is its newest immutable build, edge <next version>-edge.<UTC yyyymmddhhmmss>.g<short commit>
+        (0.1.0-edge.20261109153012.g70d3589) from every push to main that cuts no release, stable the plain vX.Y.Z
+        that cutting a release adds to the newest edge build of that version. edge follows semver (default
+        >=0.0.0-0) narrowed by an includeTag regexp for its builds; stable follows >=0.0.0, which excludes
+        pre-releases, and takes no semver.
       - path: the Kustomization path inside the image (default ./deploy/<cluster.tree>).
       - depends_on: platform Kustomizations the application waits for (default kyverno-policies).
       - verify: keyless (subject, a Fulcio certificate-subject regexp; issuer defaults to cluster.issuer) XOR keyed
@@ -124,8 +126,13 @@ variable "image" {
   }
 
   validation {
-    condition     = var.image.semver == null || var.image.channel == null
-    error_message = "image sets at most one of semver (a version range) and channel (edge or stable)."
+    condition     = var.image.semver == null || var.image.channel != "stable"
+    error_message = "image.semver combines with channel edge only: stable with a range is the range alone (set semver without a channel)."
+  }
+
+  validation {
+    condition     = var.image.semver == null || var.image.channel != "edge" || can(regex("[0-9]-[0-9A-Za-z]", coalesce(var.image.semver, "-")))
+    error_message = "image.semver with channel edge needs a pre-release bound (^1.0.0-0, <2.0.0-0 >=1.0.0-0): edge builds are pre-releases, so a range without one admits none, which empties the seed and prunes the application."
   }
 
   validation {

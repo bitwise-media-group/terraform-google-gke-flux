@@ -6,10 +6,11 @@
        (<base>-edge.<UTC yyyymmddhhmmss>.g<short commit>, say), a semver
        pre-release the range >=0.0.0-0 admits, sorts by time and limit 1
        takes; includeTag keeps the range to that channel's builds. The
-       prune: disabled label is essential: the image's own Kustomization
-       adopts this object (the image ships an identical copy under flux/)
-       and must never be able to prune its own parent should a release drop
-       that copy. */}}
+       prune: disabled label is essential for a cluster root's applications:
+       the image ships an identical copy under flux/ and its own
+       Kustomization adopts this object, so it must never be able to prune
+       its own parent should a release drop that copy. modules/application
+       keeps this object under terraform, and its images ship no copy. */}}
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSetInputProvider
 metadata:

@@ -244,18 +244,74 @@ run "invalid_channel" {
   expect_failures = [var.image]
 }
 
-run "semver_and_channel" {
+run "edge_bounded_by_semver" {
+  command = plan
+
+  variables {
+    image = {
+      url     = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+      semver  = "^1.0.0-0"
+      channel = "edge"
+      verify  = { subject = "^https://github\\.com/org/demo/.+$" }
+    }
+  }
+
+  # semver bounds the channel: every 1.x edge build, none from the next
+  # breaking change (2.0.0-edge.*) on.
+  assert {
+    condition = (
+      yamldecode(helm_release.seed.values[0]).semver == "^1.0.0-0"
+      && yamldecode(helm_release.seed.values[0]).includeTag == "^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+    )
+    error_message = "edge with a semver range must follow that range, still narrowed to the edge builds"
+  }
+}
+
+run "edge_semver_needs_a_prerelease_bound" {
+  command = plan
+
+  variables {
+    image = {
+      url     = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+      semver  = "<2.0.0 >=1.0.0"
+      channel = "edge"
+      verify  = { subject = "^https://github\\.com/org/demo/.+$" }
+    }
+  }
+
+  # edge builds are pre-releases: a range with no pre-release bound admits
+  # none of them, which would empty the seed and prune the application.
+  expect_failures = [var.image]
+}
+
+run "edge_semver_hyphen_range_is_no_prerelease" {
+  command = plan
+
+  variables {
+    image = {
+      url     = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
+      semver  = "1.0.0 - 2.0.0"
+      channel = "edge"
+      verify  = { subject = "^https://github\\.com/org/demo/.+$" }
+    }
+  }
+
+  expect_failures = [var.image]
+}
+
+run "stable_with_semver" {
   command = plan
 
   variables {
     image = {
       url     = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
       semver  = "<1.0.0 >=0.1.0"
-      channel = "edge"
+      channel = "stable"
       verify  = { subject = "^https://github\\.com/org/demo/.+$" }
     }
   }
 
+  # stable with a range is the range alone: set semver without a channel.
   expect_failures = [var.image]
 }
 

@@ -3,10 +3,11 @@
 apiVersion: v2
 name: application
 description: >-
-  Bootstrap-only seed for one application manifest image: the
-  ResourceSetInputProvider and ResourceSet (both named <name>-manifests) that
-  resolve the newest tag in range, verify the image and apply it as
-  Kustomization <name>. The image ships the same two objects under flux/ and
-  owns them from its first reconcile.
+  Seed for one application manifest image: the ResourceSetInputProvider and
+  ResourceSet (both named <name>-manifests) that resolve the newest tag in
+  range, verify the image and apply it as Kustomization <name>. A cluster
+  root's applications install it once and the image, which ships the same two
+  objects under flux/, owns them from its first reconcile; modules/application
+  keeps them under terraform instead.
 type: application
 version: 0.1.0

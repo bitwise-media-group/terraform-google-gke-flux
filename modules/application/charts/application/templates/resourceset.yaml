@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: MIT
 {{- /* Turns the resolved tag into a verified OCIRepository and the
        Kustomization that applies the image. Two template dialects meet here:
-       Helm's {{ }} renders the seed once at bootstrap; flux-operator's << >>
-       (inside resourcesTemplate) renders per resolved input on every
-       reconcile. The image ships an identical copy of this object and adopts
-       it on its first reconcile, so this seed is bootstrap-only. */}}
+       Helm's {{ }} renders the seed when it is installed or upgraded;
+       flux-operator's << >> (inside resourcesTemplate) renders per resolved
+       input on every reconcile. A cluster root's applications install this
+       once and the image, which ships an identical copy, adopts it on its
+       first reconcile; modules/application keeps it under terraform. */}}
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:

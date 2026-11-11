@@ -9,7 +9,7 @@
 #   2. seed              the ResourceSetInputProvider + ResourceSet that
 #                        resolve, verify and apply the image (local chart
 #                        charts/application, shared with the cluster root's
-#                        own applications), bootstrap-only
+#                        own applications), terraform-reconciled
 #   3. workload grants   project IAM members for direct Workload Identity
 #                        Federation principals (iam.tf)
 #
@@ -40,15 +40,16 @@ locals {
   # A channel is its newest immutable build: edge every pre-release
   # narrowed to its builds by an includeTag regexp ([.] so nothing needs
   # escaping through HCL, YAML or helm), stable every plain release
-  # (>=0.0.0 excludes pre-releases). Without a channel the seed follows the
-  # semver range, by default every release.
+  # (>=0.0.0 excludes pre-releases). semver bounds edge (^1.0.0-0: every edge
+  # build up to the next breaking change); without a channel the seed follows
+  # the semver range, by default every release.
   channel_build_regexps = {
     edge = "^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
   }
   seed_semver = (
-    var.image.channel == null ? coalesce(var.image.semver, ">=0.0.0")
-    : var.image.channel == "stable" ? ">=0.0.0"
-    : ">=0.0.0-0"
+    var.image.channel == "stable" ? ">=0.0.0"
+    : var.image.channel == "edge" ? coalesce(var.image.semver, ">=0.0.0-0")
+    : coalesce(var.image.semver, ">=0.0.0")
   )
   seed_include_tag = var.image.channel == null ? "" : lookup(local.channel_build_regexps, var.image.channel, "")
 
@@ -86,11 +87,14 @@ resource "helm_release" "inputs" {
   timeout = 120
 }
 
-# The seed. The image carries the same two objects and takes them over on its
-# first reconcile, so from then on the application owns itself. No
-# helm.sh/resource-policy: keep -- uninstalling the release IS the removal path
-# (the ResourceSet's finalizer garbage-collects the Kustomization, whose own
-# finalizer prunes the application).
+# The seed. Terraform owns both objects on every apply, so the semver range
+# or channel moves in the same apply as the infrastructure the application's
+# next release needs. Unlike a cluster root's applications, the image must not
+# ship its own copies (flux/): its Kustomization would re-apply them on every
+# reconcile and fight this release. No helm.sh/resource-policy: keep --
+# uninstalling the release IS the removal path (the ResourceSet's finalizer
+# garbage-collects the Kustomization, whose own finalizer prunes the
+# application).
 resource "helm_release" "seed" {
   name      = "application-${var.name}"
   namespace = var.cluster.namespace
@@ -118,13 +122,6 @@ resource "helm_release" "seed" {
 
   wait    = true
   timeout = 120
-
-  # Bootstrap-only: the image's own copy of these objects wins every field from
-  # the first reconcile on, and a terraform re-apply would fight it back. Never
-  # lift this.
-  lifecycle {
-    ignore_changes = all
-  }
 
   # The <name>-vars ConfigMap (and the namespaces) must be in place for the
   # Kustomization's first substitution.

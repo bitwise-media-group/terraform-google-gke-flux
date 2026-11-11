@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 output "release" {
-  description = "The bootstrap-only seed release (application-<name>) in the flux namespace."
+  description = "The seed release (application-<name>) in the flux namespace, reconciled by every terraform apply."
   value       = helm_release.seed.name
 }
 

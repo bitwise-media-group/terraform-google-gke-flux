@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: MIT
 
 # The application's short name: the seed objects are <name>-manifests and the
-# Kustomization is <name>. Fixed contract with the image's own flux/ copy.
+# Kustomization is <name>. Fixed contract with the image (and, for a cluster
+# root's applications, with its own flux/ copy).
 name: ""
 
 # The image, without a tag or digest (oci://<host>/<repository>).

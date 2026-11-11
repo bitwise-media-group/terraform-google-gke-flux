@@ -272,19 +272,25 @@ module "patchy" {
 }
 ```
 
-It creates exactly what the cluster root would: the bootstrap-only seed (`application-<name>`, the same local chart), a
+It creates what the cluster root would: the seed (`application-<name>`, the same local chart), a
 terraform-reconciled `application-<name>-inputs` release carrying the `<name>-vars` ConfigMap and the namespaces, and
 the workload grants' IAM members. An application lives in the cluster root **or** in its own root, never both. The
 helm release names collide loudly; the IAM members don't — an IAM member binding is shared, so if two roots declare the
 same (member, role) pair, destroying either removes it for both.
 
-`image.channel` has no cluster root equivalent. It seeds the application onto a channel (`edge` or `stable`) in place of
-the semver range, so a cluster can bootstrap from a channel before any release exists. No tag moves: a channel is its
-newest immutable build, the same contract as the platform's sync (see [release channels](#release-channels)). `edge`
-builds are semver pre-releases (`0.1.0-edge.20261109153012.g70d3589`), so the seed follows `>=0.0.0-0` narrowed by an
-`includeTag` regexp for the edge builds; `stable` follows `>=0.0.0`, the plain releases. Set at most one of
-`image.semver` and `image.channel`. The image's `flux/` copy must publish the same filter, or its first reconcile
-re-points the application.
+**Terraform owns the seed.** Unlike a cluster root's applications, the module keeps `<name>-manifests` under terraform
+on every apply instead of handing it to the image. The application's repository moves its semver range or channel in the
+same apply as the infrastructure its next release needs, so a breaking release and the roles, grants or secrets it
+depends on land together. The image must not ship its own `flux/` copies of the two objects, or its Kustomization
+re-applies them on every reconcile and fights the module.
+
+`image.channel` has no cluster root equivalent. It follows a channel (`edge` or `stable`), so a cluster can track one
+before any release exists. No tag moves: a channel is its newest immutable build, the same contract as the platform's
+sync (see [release channels](#release-channels)). `edge` builds are semver pre-releases
+(`0.1.0-edge.20261109153012.g70d3589`), so the seed follows `>=0.0.0-0` narrowed by an `includeTag` regexp for the edge
+builds; `stable` follows `>=0.0.0`, the plain releases. `image.semver` bounds `edge` and needs a pre-release bound to
+admit any edge build: `^1.0.0-0` follows every edge build up to the next breaking change (on 0.x, `^0.2.0-0` stops
+before the next minor). `stable` takes no `semver`: a range alone already follows releases.
 
 ## Capacity / node pools
 
