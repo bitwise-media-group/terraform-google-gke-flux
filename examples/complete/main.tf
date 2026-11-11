@@ -3,7 +3,7 @@
 
 # Every surface on: the DNS/TLS wiring (delegated zone lookup, ACME email,
 # reserved Gateway address), NAP limits, control-plane access constraints,
-# SSO with kubectl through dex (workforce identity), the staging sync
+# SSO with kubectl through dex (workforce identity), the edge sync
 # channel, the electable platform components, extra cluster vars / kustomize
 # patches and one seeded application (patchy) composed the way a real root
 # composes it - the application's own module emits the maps, the cluster
@@ -77,7 +77,7 @@ locals {
       timeout    = "10m"
       depends_on = concat(["kyverno-policies", "gateway"], var.sso.enabled ? ["dex"] : [])
       verify = {
-        subject = "^https://github\\.com/bitwise-media-group/patchy-app-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+        subject = "^https://github\\.com/bitwise-media-group/patchy-app-manifests/\\.github/workflows/release\\.yaml@refs/heads/main$"
       }
     }
 
@@ -92,7 +92,7 @@ locals {
       CLAUDE_VERTEX_PROJECT_ID         = ""
       CLAUDE_MODEL_MAP                 = ""
       PATCHY_MANIFESTS_SEMVER          = "<1.0.0 >=0.1.0"
-      SIGNED_IDENTITY_PATCHY_MANIFESTS = "^https://github\\.com/bitwise-media-group/patchy-app-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+      SIGNED_IDENTITY_PATCHY_MANIFESTS = "^https://github\\.com/bitwise-media-group/patchy-app-manifests/\\.github/workflows/release\\.yaml@refs/heads/main$"
     }
   }
 }
@@ -198,9 +198,9 @@ module "cluster" {
 
   flux = {
     sync = {
-      # this environment tracks the staging channel; production consumers
-      # track stable (the default)
-      ref = "staging"
+      # this environment tracks trunk (the edge channel); production
+      # consumers track stable (the default). Both carry the same signer.
+      ref = "edge"
     }
 
     # the application's namespaces exist from minute zero so its secrets

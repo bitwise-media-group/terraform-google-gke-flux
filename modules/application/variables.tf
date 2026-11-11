@@ -82,11 +82,11 @@ variable "image" {
         kubernetes.io/dockerconfigjson Secret in the flux namespace that both the tag listing and the pull read).
       - semver: the tag range the seed follows (default >=0.0.0 when channel is unset); a range matching no tag
         prunes the application.
-      - channel: edge, staging or stable, followed in place of semver, so a cluster can bootstrap from a channel
-        before any release exists. No tag moves: a channel is its newest immutable build, edge
-        <base>-edge.<UTC yyyymmddhhmmss>.g<short commit> (0.1.0-edge.20261109153012.g70d3589), staging
-        X.Y.Z-staging.<UTC yyyymmddhhmmss>.g<short commit>, stable the plain vX.Y.Z promotion adds. edge and staging
-        follow semver >=0.0.0-0 narrowed by an includeTag regexp for their builds; stable follows >=0.0.0, which
+      - channel: edge or stable, followed in place of semver, so a cluster can bootstrap from a channel before any
+        release exists. No tag moves: a channel is its newest immutable build, edge <next version>-edge.<UTC
+        yyyymmddhhmmss>.g<short commit> (0.1.0-edge.20261109153012.g70d3589) from every push to main that cuts no
+        release, stable the plain vX.Y.Z that cutting a release adds to the newest edge build of that version. edge
+        follows semver >=0.0.0-0 narrowed by an includeTag regexp for its builds; stable follows >=0.0.0, which
         excludes pre-releases. Set at most one of semver and channel. The image's flux/ copy must publish the same
         filter or it re-points the application on its first reconcile.
       - path: the Kustomization path inside the image (default ./deploy/<cluster.tree>).
@@ -119,13 +119,13 @@ variable "image" {
   }
 
   validation {
-    condition     = var.image.channel == null || contains(["edge", "staging", "stable"], coalesce(var.image.channel, "-"))
-    error_message = "image.channel must be edge, staging or stable."
+    condition     = var.image.channel == null || contains(["edge", "stable"], coalesce(var.image.channel, "-"))
+    error_message = "image.channel must be edge or stable."
   }
 
   validation {
     condition     = var.image.semver == null || var.image.channel == null
-    error_message = "image sets at most one of semver (a version range) and channel (edge, staging or stable)."
+    error_message = "image sets at most one of semver (a version range) and channel (edge or stable)."
   }
 
   validation {

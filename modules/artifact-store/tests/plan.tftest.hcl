@@ -95,23 +95,13 @@ run "wif_trust" {
   }
 
   assert {
-    condition     = sort(keys(google_service_account_iam_member.manifest_publisher_wif)) == tolist(["flux-manifests:env", "flux-manifests:main", "flux-manifests:tag"])
-    error_message = "manifest publishing must admit exactly the release-tag, edge-build and promotion-environment principals"
+    condition     = keys(google_service_account_iam_member.manifest_publisher_wif) == ["flux-manifests:main"]
+    error_message = "manifest publishing must admit the main branch alone: no release-tag or promotion-environment principal"
   }
 
   assert {
     condition     = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:main"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group/flux-manifests:ref:refs/heads/main"
-    error_message = "merges to the flux-manifests default branch must be able to publish edge builds"
-  }
-
-  assert {
-    condition     = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:tag"].member == "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/attribute.publish/bitwise-media-group/flux-manifests:tag"
-    error_message = "release tags must be able to publish staging builds"
-  }
-
-  assert {
-    condition     = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:env"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group/flux-manifests:environment:production"
-    error_message = "only the protected production environment may promote a staging build to stable"
+    error_message = "the flux-manifests release workflow on main must be able to publish edge builds and promote releases"
   }
 
   assert {
@@ -138,16 +128,6 @@ run "repository_id_pinned" {
   assert {
     condition     = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:main"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group@282673588/flux-manifests@1310000042:ref:refs/heads/main"
     error_message = "with repository_id set, subject members must pin the immutable org/repo ids"
-  }
-
-  assert {
-    condition     = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:env"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group@282673588/flux-manifests@1310000042:environment:production"
-    error_message = "the promotion-environment member must pin the immutable org/repo ids too"
-  }
-
-  assert {
-    condition     = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:tag"].member == "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/attribute.publish/bitwise-media-group/flux-manifests:tag"
-    error_message = "attribute.publish matches assertion.repository, which stays name-only regardless of repository_id"
   }
 }
 
@@ -215,8 +195,8 @@ run "signed_identities" {
   }
 
   assert {
-    condition     = output.signed_identity_subjects.manifests == "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
-    error_message = "manifests signing identity must pin the publish workflow on release tags"
+    condition     = output.signed_identity_subjects.manifests == "^https://github\\.com/bitwise-media-group/[^/]+/\\.github/workflows/release\\.yaml@refs/heads/main$"
+    error_message = "manifests signing identity must admit the release workflow on main of every org repo by default"
   }
 }
 
@@ -260,18 +240,8 @@ run "manifest_publisher_per_repo" {
   }
 
   assert {
-    condition     = google_service_account_iam_member.manifest_publisher_wif["github-arc-app-manifests:tag"].member == "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/attribute.publish/bitwise-media-group/github-arc-app-manifests:tag"
-    error_message = "an application publisher must be impersonable from its own repo's release tags"
-  }
-
-  assert {
-    condition     = google_service_account_iam_member.manifest_publisher_wif["github-arc-app-manifests:env"].member == "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github-actions/subject/repo:bitwise-media-group@282673588/github-arc-app-manifests@1320000077:environment:production"
-    error_message = "an application publisher must be impersonable from its own repo's promotion environment"
-  }
-
-  assert {
-    condition     = length(google_service_account_iam_member.manifest_publisher_wif) == 6
-    error_message = "each publisher is trusted from exactly three contexts"
+    condition     = length(google_service_account_iam_member.manifest_publisher_wif) == 2
+    error_message = "each publisher is trusted from exactly one context, its main branch"
   }
 
   assert {
@@ -298,14 +268,53 @@ run "manifest_publisher_per_repo" {
   }
 
   assert {
-    condition     = output.manifest_publishers["github-arc-app-manifests"].subjects.release == "^https://github\\.com/bitwise-media-group/github-arc-app-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
-    error_message = "the output must carry each publisher's release signing subject (what its image.verify.subject pins)"
+    condition     = output.manifest_publishers["github-arc-app-manifests"].subject == "^https://github\\.com/bitwise-media-group/github-arc-app-manifests/\\.github/workflows/release\\.yaml@refs/heads/main$"
+    error_message = "the output must carry each publisher's own release-workflow subject (what its image.verify.subject pins)"
   }
 
   assert {
-    condition     = output.signed_identity_subjects.manifests == "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
-    error_message = "signed_identity_subjects must stay keyed off the platform publisher"
+    condition     = output.manifest_publishers["flux-manifests"].subject == "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/release\\.yaml@refs/heads/main$"
+    error_message = "the platform publisher's own subject must be exported, for a cluster that holds the platform to its own repo"
   }
+}
+
+# A fork trusting a subset of the org's repos narrows the signer pattern;
+# each publisher's own subject is unaffected.
+run "manifest_signers_narrow_the_subject" {
+  command = plan
+
+  variables {
+    github = {
+      platform         = "aip-platform-manifests"
+      manifest_signers = "aip-[^/]+"
+      manifest_publishers = {
+        aip-platform-manifests = { paths = ["manifests/*"] }
+      }
+    }
+  }
+
+  assert {
+    condition     = output.signed_identity_subjects.manifests == "^https://github\\.com/bitwise-media-group/aip-[^/]+/\\.github/workflows/release\\.yaml@refs/heads/main$"
+    error_message = "github.manifest_signers must replace the repository part of the manifests subject"
+  }
+
+  assert {
+    condition = (
+      can(regex(output.signed_identity_subjects.manifests, "https://github.com/bitwise-media-group/aip-platform-manifests/.github/workflows/release.yaml@refs/heads/main"))
+      && !can(regex(output.signed_identity_subjects.manifests, "https://github.com/bitwise-media-group/patchy-app-manifests/.github/workflows/release.yaml@refs/heads/main"))
+    )
+    error_message = "the narrowed subject must admit an aip-* repo's release workflow and nothing else"
+  }
+}
+
+run "manifest_signers_reject_anchors" {
+  command = plan
+
+  variables {
+    github = { manifest_signers = "^aip-[^/]+$" }
+  }
+
+  expect_failures = [var.github]
 }
 
 run "platform_must_be_a_publisher" {

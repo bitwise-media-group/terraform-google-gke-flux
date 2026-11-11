@@ -62,9 +62,10 @@ There is no blueprints repo; this is the canonical ordering:
    `GOOGLE_PLATFORM_REGISTRY` Actions variables, and each manifest-publishing repo's `GOOGLE_MANIFEST_PUBLISHER_SA`
    from its `manifest_publishers` entry (one publisher per repo: the platform's, and each application's).
 3. **flux-containers**: publish every chart + image the platform uses.
-4. **flux-manifests** (>= 4.0.0): cut the first release; its publish workflow pushes the signed `manifests/platform`
-   and `manifests/<component>` images as a staging build (`X.Y.Z-staging.<UTC yyyymmddhhmmss>.g<short commit>`);
-   promotion adds the stable `vX.Y.Z` tag to it. No tag ever moves (see [release channels](#release-channels)).
+4. **flux-manifests** (>= 4.0.0): merge to `main`; its release workflow pushes the signed `manifests/platform` and
+   `manifests/<component>` images as an edge build (`<next version>-edge.<UTC yyyymmddhhmmss>.g<short commit>`), and
+   cutting a release promotes that build to the stable `vX.Y.Z`. No tag ever moves (see
+   [release channels](#release-channels)).
 5. **sso-secrets** (only with `sso`): instantiate [`modules/sso-secrets`](modules/sso-secrets/) in a durable root with
    the same `sso` and `secret_prefix` values, then add the connector credentials out of band
    (`gcloud secrets versions add`).
@@ -123,14 +124,17 @@ FluxInstance this module bootstraps, so a changed var re-points a running cluste
 
 No tag ever moves: every tag in the registry is immutable, and a channel is its newest build.
 
-| Channel   | Each build is tagged                                                                                           | Followed as                                                                              |
-| --------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `edge`    | `<base>-edge.<UTC yyyymmddhhmmss>.g<short commit>`, every merge to main (`0.1.0-edge.20261109153012.g70d3589`) | `>=0.0.0-0`, filtered by `^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$` |
-| `staging` | `X.Y.Z-staging.<UTC yyyymmddhhmmss>.g<short commit>`, every release                                            | `>=0.0.0-0`, filtered by the same regexp with `staging`                                  |
-| `stable`  | `vX.Y.Z`, added to the staging build by promotion                                                              | `>=0.0.0`, which excludes pre-releases                                                   |
+| Channel  | Each build is tagged                                                                                                                       | Followed as                                                                              |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `edge`   | `<next version>-edge.<UTC yyyymmddhhmmss>.g<short commit>`, every push to main that cuts no release (`0.1.0-edge.20261109153012.g70d3589`) | `>=0.0.0-0`, filtered by `^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$` |
+| `stable` | `vX.Y.Z`, added to the newest `X.Y.Z` edge build when the release is cut (promotion, never a rebuild)                                      | `>=0.0.0`, which excludes pre-releases                                                   |
 
 A pinned `vX.Y.Z` or full build tag (`flux.sync.ref`) is followed verbatim. Every build also carries `sha-<commit>`.
-`<base>` is the publishing repository's current release-please version.
+`<next version>` is the version of the publishing repository's open release pull request. Both channels are signed by
+the same identity, the repository's release workflow on `main`: the artifact store's
+`signed_identity_subjects.manifests` admits it for every repo `github.manifest_signers` matches (every org repo by
+default; a fork narrows it, e.g. `aip-[^/]+`). Artifact Registry cannot keep one publisher off another's paths, so a
+cluster that must hold the platform to its own repo pins `manifest_publishers["<platform repo>"].subject` instead.
 
 The `FluxInstance` sync has no verify or substitution field, and renders its `ref` as a tag only, so all three ride in
 as kustomize patches on the objects it generates: a cosign `verify` block and a `spec.ref` of `semver` (and
@@ -216,7 +220,7 @@ module "cluster" {
 
   platform_components = ["flux-web"]
   workload_grants     = module.patchy.workload_grants          # roles per key, as direct federated principals
-  flux                = { namespaces = module.patchy.namespaces, sync = { ref = "staging" } }
+  flux                = { namespaces = module.patchy.namespaces, sync = { ref = "edge" } }
   applications        = { patchy = module.patchy.application } # url, semver, verify, depends_on
   application_vars    = { patchy = module.patchy.vars }        # the patchy-vars ConfigMap
   # ...
@@ -274,14 +278,13 @@ the workload grants' IAM members. An application lives in the cluster root **or*
 helm release names collide loudly; the IAM members don't — an IAM member binding is shared, so if two roots declare the
 same (member, role) pair, destroying either removes it for both.
 
-`image.channel` has no cluster root equivalent. It seeds the application onto a channel (`edge`, `staging` or `stable`)
-in place of the semver range, so a cluster can bootstrap from a channel before any release exists. No tag moves: a
-channel is its newest immutable build, the same contract as the platform's sync (see
-[release channels](#release-channels)). `edge` and `staging` builds are semver pre-releases
-(`0.1.0-edge.20261109153012.g70d3589`), so the seed follows `>=0.0.0-0` narrowed by an `includeTag` regexp for the
-channel's builds; `stable` follows `>=0.0.0`, the plain releases. Set at most one of `image.semver` and
-`image.channel`. The image's `flux/` copy must publish the same filter, or its first reconcile re-points the
-application.
+`image.channel` has no cluster root equivalent. It seeds the application onto a channel (`edge` or `stable`) in place of
+the semver range, so a cluster can bootstrap from a channel before any release exists. No tag moves: a channel is its
+newest immutable build, the same contract as the platform's sync (see [release channels](#release-channels)). `edge`
+builds are semver pre-releases (`0.1.0-edge.20261109153012.g70d3589`), so the seed follows `>=0.0.0-0` narrowed by an
+`includeTag` regexp for the edge builds; `stable` follows `>=0.0.0`, the plain releases. Set at most one of
+`image.semver` and `image.channel`. The image's `flux/` copy must publish the same filter, or its first reconcile
+re-points the application.
 
 ## Capacity / node pools
 
@@ -340,8 +343,8 @@ The AWS sibling has moved ahead in places that do not apply here, deliberately:
 - **Registry-enforced tag immutability** (`11b1d21`, `055e5dd`) — the channels are immutable builds here too, but
   Artifact Registry's `immutable_tags` would stop cleanup policies ever deleting a tagged build, so immutability is the
   publishers' contract and the store ages builds out instead. Its retention is coarser than ECR's lifecycle rules:
-  Artifact Registry matches tags by prefix only and counts versions per package, so edge and staging builds share one
-  `build_retention_count`.
+  Artifact Registry matches tags by prefix only and counts versions per package, so one `build_retention_count` covers
+  every build of a package.
 - **Artifact-store replication** (`99819e8`) — deferred, not rejected: multi-region replication needs a design of its
   own.
 
@@ -469,7 +472,7 @@ alone, so bump the version in the same apply to keep both halves of the pair in 
 | applications | Application manifest images this cluster seeds, keyed by the application's short name. Each entry creates a<br/>bootstrap-only seed in flux-system (a ResourceSetInputProvider and ResourceSet named <key>-manifests) that<br/>resolves the newest tag matching semver, verifies the image's cosign signature and applies path from it as<br/>Kustomization <key>; the image ships the same two seed objects under flux/ and owns them from its first<br/>reconcile, so a new application release never needs a terraform apply. Removing a key uninstalls the seed and<br/>prunes the application. The entry is applied once and then ignored (ignore\_changes), exactly like the<br/>flux-operator and flux-instance releases.<br/>  - url: the image without a tag or digest. An Artifact Registry url must live under platform\_registry (the flux<br/>    controllers pull it with their Workload Identity and list its tags through the Artifact Registry API); any<br/>    other registry is listed and pulled generically, optionally with pull\_secret (a<br/>    kubernetes.io/dockerconfigjson Secret in flux-system that both the tag listing and the pull read).<br/>  - semver: the tag range the seed follows (default >=0.0.0); a range matching no tag prunes the application.<br/>  - path: the Kustomization path inside the image (default ./deploy/<flux.sync.path>, the same per-cloud tree<br/>    selector the platform uses, published as PLATFORM\_TREE).<br/>  - depends\_on: platform Kustomizations the application waits for (default kyverno-policies).<br/>  - verify: keyless (subject, a Fulcio certificate-subject regexp; issuer defaults to signed\_identity.issuer)<br/>    XOR keyed (the cosign-pub public-key Secret, KMS mode only).<br/>Application vars ride separately in application\_vars, so a composite image's inner applications can each have<br/>their own ConfigMap. An application registers its dex clients itself, as DexClient objects in its own image<br/>(the platform's dex-client-controller reconciles them). An application can instead be published from a root of<br/>its own with modules/application and this module's application\_target output - never from both. | <pre>map(object({<br/>    url        = string<br/>    semver     = optional(string, ">=0.0.0")<br/>    path       = optional(string)<br/>    interval   = optional(string, "30m")<br/>    depends_on = optional(set(string), ["kyverno-policies"])<br/>    verify = object({<br/>      issuer  = optional(string)<br/>      subject = optional(string)<br/>      keyed   = optional(bool, false)<br/>    })<br/>    pull_secret = optional(string)<br/>    prune       = optional(bool, true)<br/>    wait        = optional(bool, true)<br/>    timeout     = optional(string, "5m")<br/>  }))</pre> | `{}` | no |
 | deletion\_protection | Terraform-level destroy protection for the cluster. Off by default: this environment is disposable by design. | `bool` | `false` | no |
 | dns | Existing delegated Cloud DNS zone (created by cloud-accounts; never owned here). zone\_name enables the DNS/TLS<br/>surface: external-dns + cert-manager IAM grants and the DNS\_* / PLATFORM\_DOMAIN cluster vars. host optionally<br/>narrows the served host below the zone apex (PLATFORM\_DOMAIN, the parent of the dex. and flux. hosts). | <pre>object({<br/>    zone_name  = optional(string)<br/>    host       = optional(string)<br/>    acme_email = optional(string)<br/>  })</pre> | `{}` | no |
-| flux | Flux bootstrap knobs. Chart repositories, the distribution registry and the sync url default onto platform\_registry;<br/>sync.ref picks the release channel (stable, staging, or edge for dev clusters tracking trunk -- pair edge with the<br/>manifests\_edge signing subject). No tag moves: a channel is its newest immutable build, edge<br/><base>-edge.<UTC yyyymmddhhmmss>.g<short commit>, staging X.Y.Z-staging.<UTC yyyymmddhhmmss>.g<short commit>, and<br/>stable the plain vX.Y.Z promotion adds, so the sync follows a semver range (patched onto the sync OCIRepository)<br/>published as FLUX\_SYNC\_SEMVER with its tag regexp as FLUX\_SYNC\_SEMVER\_FILTER (empty for stable); a pinned vX.Y.Z or<br/>full build tag is followed verbatim. sync.url defaults to the platform entrypoint image<br/>oci://<platform\_registry>/manifests/platform (flux-manifests >= 4.0.0), published as FLUX\_SYNC\_URL so the<br/>platform's flux component can re-point a running cluster; sync.path selects the per-cloud tree inside it<br/>("google"), published as PLATFORM\_TREE and the default ./deploy/<path> of every application image. namespaces are<br/>pre-created by the cluster-inputs chart ahead of the platform. | <pre>object({<br/>    operator_chart = optional(object({<br/>      repository = optional(string)<br/>      version    = optional(string)<br/>    }), {})<br/>    instance_chart = optional(object({<br/>      repository = optional(string)<br/>      version    = optional(string)<br/>    }), {})<br/>    distribution = optional(object({<br/>      version  = optional(string, "2.x")<br/>      registry = optional(string)<br/>      artifact = optional(string)<br/>    }), {})<br/>    sync = optional(object({<br/>      url      = optional(string)<br/>      ref      = optional(string, "stable")<br/>      path     = optional(string, "google")<br/>      interval = optional(string, "5m")<br/>    }), {})<br/>    kustomize_patches = optional(list(any), [])<br/>    cluster_vars      = optional(map(string), {})<br/>    namespaces        = optional(list(string), [])<br/>  })</pre> | `{}` | no |
+| flux | Flux bootstrap knobs. Chart repositories, the distribution registry and the sync url default onto platform\_registry;<br/>sync.ref picks the release channel (stable, or edge for dev clusters tracking trunk); both carry the same signer<br/>(the publishing repo's release workflow on main). No tag moves: a channel is its newest immutable build, edge<br/><next version>-edge.<UTC yyyymmddhhmmss>.g<short commit> and stable the plain vX.Y.Z that cutting a release adds<br/>to the newest edge build of that version, so the sync follows a semver range (patched onto the sync OCIRepository)<br/>published as FLUX\_SYNC\_SEMVER with its tag regexp as FLUX\_SYNC\_SEMVER\_FILTER (empty for stable); a pinned vX.Y.Z or<br/>full build tag is followed verbatim. sync.url defaults to the platform entrypoint image<br/>oci://<platform\_registry>/manifests/platform (flux-manifests >= 4.0.0), published as FLUX\_SYNC\_URL so the<br/>platform's flux component can re-point a running cluster; sync.path selects the per-cloud tree inside it<br/>("google"), published as PLATFORM\_TREE and the default ./deploy/<path> of every application image. namespaces are<br/>pre-created by the cluster-inputs chart ahead of the platform. | <pre>object({<br/>    operator_chart = optional(object({<br/>      repository = optional(string)<br/>      version    = optional(string)<br/>    }), {})<br/>    instance_chart = optional(object({<br/>      repository = optional(string)<br/>      version    = optional(string)<br/>    }), {})<br/>    distribution = optional(object({<br/>      version  = optional(string, "2.x")<br/>      registry = optional(string)<br/>      artifact = optional(string)<br/>    }), {})<br/>    sync = optional(object({<br/>      url      = optional(string)<br/>      ref      = optional(string, "stable")<br/>      path     = optional(string, "google")<br/>      interval = optional(string, "5m")<br/>    }), {})<br/>    kustomize_patches = optional(list(any), [])<br/>    cluster_vars      = optional(map(string), {})<br/>    namespaces        = optional(list(string), [])<br/>  })</pre> | `{}` | no |
 | gateway | The platform Gateway's global static IP, stable across cluster recreation. Reserve one here (default; address\_name<br/>defaults to <name>-gateway) or reference an existing address by name with reserve\_static\_ip = false (e.g.<br/>cloud-accounts' `ingress` address in x-patchy-app). | <pre>object({<br/>    reserve_static_ip = optional(bool, true)<br/>    address_name      = optional(string)<br/>  })</pre> | `{}` | no |
 | kubernetes\_version | Optional minimum master version pin; null lets the release channel govern. | `string` | `null` | no |
 | labels | Resource labels applied to the cluster. | `map(string)` | `{}` | no |

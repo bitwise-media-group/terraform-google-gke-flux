@@ -56,7 +56,7 @@ module "demo" {
     url    = "oci://${var.cluster.platform_registry}/manifests/demo"
     semver = "<1.0.0 >=0.1.0"
     verify = {
-      subject = "^https://github\\.com/example-org/demo-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+      subject = "^https://github\\.com/example-org/demo-manifests/\\.github/workflows/release\\.yaml@refs/heads/main$"
     }
   }
 

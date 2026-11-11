@@ -56,7 +56,7 @@ variables {
   platform_registry = "us-central1-docker.pkg.dev/x-patchy-app-ab12/platform"
 
   signed_identity = {
-    manifests_subject  = "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+    manifests_subject  = "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/release\\.yaml@refs/heads/main$"
     containers_subject = "^https://github\\.com/bitwise-media-group/flux-containers/\\.github/workflows/publish\\.yaml@refs/heads/main$"
   }
 }
@@ -485,7 +485,7 @@ run "cluster_vars_contract" {
   }
 
   assert {
-    condition     = output.flux.cluster_vars.SIGNED_IDENTITY_MANIFESTS == "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+    condition     = output.flux.cluster_vars.SIGNED_IDENTITY_MANIFESTS == "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/release\\.yaml@refs/heads/main$"
     error_message = "the manifests signing subject must be published for the stack's sync verify patch"
   }
 
@@ -582,31 +582,26 @@ run "sync_channel_edge" {
   }
 }
 
-run "sync_channel_staging" {
+# There is no staging channel: a release is promoted straight from edge.
+run "sync_rejects_staging" {
   command = plan
 
   variables {
     flux = { sync = { ref = "staging" } }
   }
 
-  assert {
-    condition = (
-      output.flux.cluster_vars.FLUX_SYNC_SEMVER == ">=0.0.0-0"
-      && output.flux.cluster_vars.FLUX_SYNC_SEMVER_FILTER == "^[0-9]+[.][0-9]+[.][0-9]+-staging[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
-    )
-    error_message = "staging follows its newest immutable build: every pre-release, narrowed to the staging builds"
-  }
+  expect_failures = [var.flux]
 }
 
 run "sync_pinned_build" {
   command = plan
 
   variables {
-    flux = { sync = { ref = "1.4.0-staging.20261112090000.g1a2b3c4" } }
+    flux = { sync = { ref = "1.4.0-edge.20261112090000.g1a2b3c4" } }
   }
 
   assert {
-    condition     = output.flux.cluster_vars.FLUX_SYNC_SEMVER == "1.4.0-staging.20261112090000.g1a2b3c4" && output.flux.cluster_vars.FLUX_SYNC_SEMVER_FILTER == ""
+    condition     = output.flux.cluster_vars.FLUX_SYNC_SEMVER == "1.4.0-edge.20261112090000.g1a2b3c4" && output.flux.cluster_vars.FLUX_SYNC_SEMVER_FILTER == ""
     error_message = "a pinned build tag is followed verbatim, with no filter"
   }
 }
@@ -667,7 +662,7 @@ run "signed_identity_modes_exclusive" {
 
   variables {
     signed_identity = {
-      manifests_subject  = "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
+      manifests_subject  = "^https://github\\.com/bitwise-media-group/flux-manifests/\\.github/workflows/release\\.yaml@refs/heads/main$"
       containers_subject = "^https://github\\.com/bitwise-media-group/flux-containers/\\.github/workflows/publish\\.yaml@refs/heads/main$"
       kms_key_name       = "projects/o-foundation-7e43/locations/us-central1/keyRings/platform/cryptoKeys/cosign"
     }
@@ -1003,7 +998,7 @@ run "applications_seeded" {
         url        = "oci://us-central1-docker.pkg.dev/x-patchy-app-ab12/platform/manifests/demo"
         semver     = "<1.0.0 >=0.1.0"
         depends_on = ["kyverno-policies", "gateway"]
-        verify     = { subject = "^https://github\\.com/org/demo-app-manifests/\\.github/workflows/publish\\.yaml@refs/tags/v.+$" }
+        verify     = { subject = "^https://github\\.com/org/demo-app-manifests/\\.github/workflows/release\\.yaml@refs/heads/main$" }
       }
       external = {
         url         = "oci://ghcr.io/org/external-manifests"

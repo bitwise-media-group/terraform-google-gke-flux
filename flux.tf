@@ -22,17 +22,17 @@ locals {
   # guarantee exactly one.
   signing_kms = var.signed_identity.kms_key_name != null
 
-  # Release channels as immutable builds: no tag ever moves. Every merge to
-  # main publishes <base>-edge.<UTC yyyymmddhhmmss>.g<short commit>, every
-  # release X.Y.Z-staging.<UTC yyyymmddhhmmss>.g<short commit>, and promotion
-  # adds the plain vX.Y.Z to the staging build. A channel is therefore a
-  # semver range plus a tag regexp ([.] so nothing needs escaping through
-  # HCL, YAML or substitution): edge and staging take the newest matching
-  # pre-release; stable is >=0.0.0, which excludes pre-releases; anything
-  # else (a pinned vX.Y.Z or a full build tag) is followed verbatim.
+  # Release channels as immutable builds: no tag ever moves. Every push to
+  # main that cuts no release publishes <next version>-edge.<UTC
+  # yyyymmddhhmmss>.g<short commit>, and cutting a release promotes the
+  # newest edge build of that version by adding the plain vX.Y.Z to it (never
+  # a rebuild). A channel is therefore a semver range plus a tag regexp ([.]
+  # so nothing needs escaping through HCL, YAML or substitution): edge takes
+  # the newest matching pre-release; stable is >=0.0.0, which excludes
+  # pre-releases; anything else (a pinned vX.Y.Z or a full build tag) is
+  # followed verbatim.
   channel_build_regexps = {
-    edge    = "^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
-    staging = "^[0-9]+[.][0-9]+[.][0-9]+-staging[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
+    edge = "^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$"
   }
   sync_semver = (
     contains(keys(local.channel_build_regexps), var.flux.sync.ref) ? ">=0.0.0-0"

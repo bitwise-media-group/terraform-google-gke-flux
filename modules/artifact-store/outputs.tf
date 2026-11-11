@@ -43,30 +43,25 @@ output "manifest_publishers" {
   description = <<-EOT
     One manifest publisher per github.manifest_publishers key: its service account (email is the service_account
     input of google-github-actions/auth in that repo, its GOOGLE_MANIFEST_PUBLISHER_SA variable), the paths it owns
-    (declarative - see the github variable), and the Fulcio certificate-subject regexps of its publish workflows
-    (release tags and the edge channel) - an application repo's release subject is what its image.verify.subject pins.
+    (declarative - see the github variable), and the Fulcio certificate-subject regexp of its release workflow on main
+    (which signs edge builds and the releases promoted from them) - what an image.verify.subject pins to trust that
+    repo alone.
   EOT
   value = {
     for repo, account in google_service_account.manifest_publisher : repo => {
-      email  = account.email
-      member = account.member
-      paths  = var.github.manifest_publishers[repo].paths
-      subjects = {
-        release = "^https://github\\.com/${var.github.org}/${repo}/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
-        edge    = "^https://github\\.com/${var.github.org}/${repo}/\\.github/workflows/publish-edge\\.yaml@refs/heads/main$"
-      }
+      email   = account.email
+      member  = account.member
+      paths   = var.github.manifest_publishers[repo].paths
+      subject = "^https://github\\.com/${var.github.org}/${replace(repo, ".", "\\.")}/\\.github/workflows/release\\.yaml@refs/heads/main$"
     }
   }
 }
 
 output "signed_identity_subjects" {
-  description = "Fulcio certificate-subject regexps for the chart mirror and the platform manifests publisher (github.platform; keyless mode) — feed these to the cluster module's signed_identity variable and the flux-manifests cluster vars. Irrelevant when signing_kms_key_name selects KMS signing. Application publishers' subjects ride in manifest_publishers."
+  description = "Fulcio certificate-subject regexps for the chart mirror and the manifests publishers (keyless mode) — feed these to the cluster module's signed_identity variable and the flux-manifests cluster vars. manifests admits the release workflow on main of every repo github.manifest_signers matches, whichever channel (edge or stable) a cluster follows. Irrelevant when signing_kms_key_name selects KMS signing. Each publisher's own subject rides in manifest_publishers."
   value = {
     containers = "^https://github\\.com/${var.github.org}/${var.github.containers}/\\.github/workflows/publish\\.yaml@refs/heads/main$"
-    manifests  = "^https://github\\.com/${var.github.org}/${var.github.platform}/\\.github/workflows/publish\\.yaml@refs/tags/v.+$"
-    # edge channel: dev/sandbox clusters tracking trunk pass this as
-    # signed_identity.manifests_subject instead of the release identity above
-    manifests_edge = "^https://github\\.com/${var.github.org}/${var.github.platform}/\\.github/workflows/publish-edge\\.yaml@refs/heads/main$"
+    manifests  = "^https://github\\.com/${var.github.org}/${var.github.manifest_signers}/\\.github/workflows/release\\.yaml@refs/heads/main$"
   }
 }
 

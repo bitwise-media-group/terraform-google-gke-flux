@@ -27,10 +27,10 @@
 # centrally and passed in via var.wif.
 
 # Every tag is immutable by contract, the channels included: no tag ever
-# moves. A channel is its newest immutable build -- <base>-edge.<UTC
-# yyyymmddhhmmss>.g<short commit> on every merge to main, X.Y.Z-staging.<...>
-# on every release, and the plain vX.Y.Z promotion adds to a staging build --
-# which consumers follow as a semver range. Every build also carries
+# moves. A channel is its newest immutable build -- <next version>-edge.<UTC
+# yyyymmddhhmmss>.g<short commit> on every push to main that cuts no release,
+# and the plain vX.Y.Z that cutting a release adds to the newest edge build of
+# that version -- which consumers follow as a semver range. Every build also carries
 # sha-<commit>.
 #
 # The registry does not enforce that contract: Artifact Registry's
@@ -45,10 +45,9 @@ locals {
   # promoted releases (vX.Y.Z, and mirrored upstream v-tags) are kept forever,
   # and the newest build_retention_count versions of every package regardless
   # of age. Artifact Registry matches tags by prefix only and counts versions
-  # per package, not per tag pattern, so unlike ECR the newest edge and staging
-  # builds share one count: the newest edge build is always within it, an
-  # unpromoted staging build only until build_retention_count newer builds of
-  # the same package land and it passes build_expiry_days.
+  # per package, not per tag pattern, so unlike ECR the count covers every
+  # version: the newest edge build is always within it, and a promoted release
+  # is kept by its v-tag whatever its age.
   build_expiry = "${var.build_expiry_days * 24 * 60 * 60}s"
 
   # A package name prefix with no slash, so it matches the manifest images
@@ -89,8 +88,8 @@ resource "google_artifact_registry_repository" "platform" {
     }
   }
 
-  # Edge, staging and commit-only builds of the manifest images that no keep
-  # policy shields.
+  # Edge and commit-only builds of the manifest images that no keep policy
+  # shields.
   cleanup_policies {
     id     = "expire-builds"
     action = "DELETE"

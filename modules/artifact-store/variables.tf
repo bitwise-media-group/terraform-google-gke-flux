@@ -43,21 +43,25 @@ variable "github" {
     the OIDC subjects of post-2026-07-15 repos (org_id from GET /orgs/<org>, repo ids from GET /repos/<org>/<repo>).
     containers is the chart/image mirror (flux-containers). manifest_publishers is every repo that publishes manifest
     images, keyed by repo name: the platform's (paths ["manifests/*"], the platform authority) and one per application
-    repo (paths ["manifests/<app>"]). Each gets its own service account, impersonable from its main branch, its v*
-    release tags and the promotion environment; repository_id may stay null until that repo exists on GitHub.
-    paths is declarative here, NOT enforced by IAM: Artifact Registry authorizes pushes per repository and its IAM
-    Conditions cannot match package paths, so every publisher holds artifactregistry.writer on the whole repository
-    and path ownership is enforced by consumer-side signature verification (each consumer pins the signer workflow
-    of the repo that owns the path). platform names the key that publishes the platform entrypoint: its workflow
-    identities are what signed_identity_subjects exports, and it keeps the <name>-manifest-publisher service account;
+    repo (paths ["manifests/<app>"]). Each gets its own service account, impersonable from its main branch alone (its
+    release workflow publishes every edge build and promotes every release there); repository_id may stay null until
+    that repo exists on GitHub. paths is declarative here, NOT enforced by IAM: Artifact Registry authorizes pushes
+    per repository and its IAM Conditions cannot match package paths, so every publisher holds
+    artifactregistry.writer on the whole repository and path ownership rests on consumer-side signature verification.
+    manifest_signers is a Go regexp over a repository name (no org, no anchors; group any alternation) choosing whose
+    release workflows signed_identity_subjects.manifests admits: every repo in the org by default, or a subset such as
+    aip-[^/]+. A cluster verifying the platform against that subject trusts every matching repo with every path; one
+    that must hold the platform to its own repo pins manifest_publishers[github.platform].subject instead. platform
+    names the key that publishes the platform entrypoint, which keeps the <name>-manifest-publisher service account;
     every other key gets <name>-mp-<8 hex of sha256(repo)> (service account ids cap at 30 characters).
   EOT
   type = object({
-    org           = optional(string, "bitwise-media-group")
-    org_id        = optional(number, 282673588)
-    containers    = optional(string, "flux-containers")
-    containers_id = optional(number, 1303643498)
-    platform      = optional(string, "flux-manifests")
+    org              = optional(string, "bitwise-media-group")
+    org_id           = optional(number, 282673588)
+    containers       = optional(string, "flux-containers")
+    containers_id    = optional(number, 1303643498)
+    platform         = optional(string, "flux-manifests")
+    manifest_signers = optional(string, "[^/]+")
     manifest_publishers = optional(map(object({
       repository_id = optional(number)
       paths         = list(string)
@@ -68,7 +72,12 @@ variable "github" {
 
   validation {
     condition     = contains(keys(var.github.manifest_publishers), var.github.platform)
-    error_message = "github.platform must name a key of github.manifest_publishers - the platform entrypoint's publisher is what the clusters' signed_identity_subjects pin."
+    error_message = "github.platform must name a key of github.manifest_publishers - the platform entrypoint needs a publisher."
+  }
+
+  validation {
+    condition     = can(regexall(var.github.manifest_signers, "")) && !can(regex("^\\^|[^\\\\]\\$$", var.github.manifest_signers))
+    error_message = "github.manifest_signers must be a valid, unanchored Go regexp over a repository name (e.g. [^/]+ or aip-[^/]+): it is embedded between the org and the workflow path."
   }
 
   validation {
@@ -87,13 +96,6 @@ variable "github" {
     ]))
     error_message = "Each github.manifest_publishers entry needs at least one path beneath manifests/ (e.g. manifests/* or manifests/<app>): lowercase docker path segments, with at most a trailing /* wildcard."
   }
-}
-
-variable "promotion_environment" {
-  description = "GitHub environment (protected, reviewer-gated) whose jobs promote a staging build to stable (its vX.Y.Z tag)."
-  type        = string
-  nullable    = false
-  default     = "production"
 }
 
 variable "wif" {
@@ -151,9 +153,8 @@ variable "reader_members" {
 variable "build_retention_count" {
   description = <<-EOT
     How many of the newest versions of each package (manifests/<name>, and every mirrored chart and image) are kept
-    regardless of age. Artifact Registry counts per package, not per channel, so edge and staging builds share this
-    count: it must cover the edge builds landed since the newest staging build that has not been promoted yet, or
-    that build ages out after build_expiry_days. Promoted releases (v* tags) are kept regardless.
+    regardless of age. Artifact Registry counts per package, not per channel, so the count covers every version of the
+    package; the newest edge build is always within it. Promoted releases (v* tags) are kept regardless.
   EOT
   type        = number
   nullable    = false
@@ -167,7 +168,7 @@ variable "build_retention_count" {
 
 variable "build_expiry_days" {
   description = <<-EOT
-    Days after push at which a tagged manifest image -- an edge, staging or sha-<commit> build -- outside the newest
+    Days after push at which a tagged manifest image -- an edge or sha-<commit> build -- outside the newest
     build_retention_count of its package and never promoted (no v* tag) is deleted. Mirrored charts and images are
     never aged out.
   EOT

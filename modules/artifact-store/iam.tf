@@ -7,19 +7,16 @@
 # impersonate through the WIF provider.
 
 locals {
-  # repo:<org>@<org id>/<repo>@<repo id>:ref:refs/heads/main etc. — the exact
+  # repo:<org>@<org id>/<repo>@<repo id>:ref:refs/heads/main -- the exact
   # GitHub OIDC subjects admitted to each publisher. principal:// members match
-  # google.subject exactly; the principalSet:// member matches the
-  # attribute.publish mapping.
+  # google.subject exactly.
   wif_principal_prefix = "principal://iam.googleapis.com/${var.wif.pool_name}/subject"
-  wif_publish_prefix   = "principalSet://iam.googleapis.com/${var.wif.pool_name}/attribute.publish"
 
   # GitHub mints immutable subjects for repos created (or renamed/transferred)
   # after 2026-07-15: repo:<org>@<org id>/<repo>@<repo id>:<context>. Both
   # publishing repos are post-cutoff, so subject-matched members must pin the
   # numeric ids — the name-only form never matches and impersonation fails
-  # with a 403. Only google.subject changes: assertion.repository (the
-  # attribute.publish source) still carries plain names.
+  # with a 403.
   containers_subject_repo = "${var.github.org}@${var.github.org_id}/${var.github.containers}@${var.github.containers_id}"
 
   # A manifest-publishing repo may not exist on GitHub yet when the store is
@@ -34,21 +31,17 @@ locals {
     )
   }
 
-  # Every manifest publisher is trusted from the same three contexts, keyed
+  # Every manifest publisher is trusted from main alone: its release
+  # workflow's publish job pushes an edge build on every push that cuts no
+  # release, and promotes the newest edge build of the version (adding the
+  # stable vX.Y.Z tag) when one is cut. No tag ever moves. Keyed
   # <repo>:<context> by fixed labels rather than member strings, so keys stay
   # plan-known even when var.wif carries computed values (e.g. the pool
   # resource's name output).
-  manifest_publisher_members = merge([
-    for repo, subject_repo in local.manifest_subject_repos : {
-      # Release tags publish staging builds. No tag ever moves.
-      "${repo}:tag" = "${local.wif_publish_prefix}/${var.github.org}/${repo}:tag"
-      # Merges to main publish edge builds (publish-edge.yaml).
-      "${repo}:main" = "${local.wif_principal_prefix}/repo:${subject_repo}:ref:refs/heads/main"
-      # The protected promotion environment adds the stable vX.Y.Z tag to a
-      # staging build.
-      "${repo}:env" = "${local.wif_principal_prefix}/repo:${subject_repo}:environment:${var.promotion_environment}"
-    }
-  ]...)
+  manifest_publisher_members = {
+    for repo, subject_repo in local.manifest_subject_repos :
+    "${repo}:main" => "${local.wif_principal_prefix}/repo:${subject_repo}:ref:refs/heads/main"
+  }
 
   # service account ids cap at 30 characters, too few for <name>-<repo>-...
   # The platform publisher keeps the id it has always had (its email, and so
@@ -80,7 +73,7 @@ resource "google_service_account" "manifest_publisher" {
   project      = var.project
   account_id   = local.manifest_publisher_ids[each.key]
   display_name = "Manifest publisher (${var.github.org}/${each.key})"
-  description  = "Pushes ${join(", ", each.value.paths)} in the ${var.repository_id} repository and moves channel tags from GitHub Actions"
+  description  = "Pushes ${join(", ", each.value.paths)} in the ${var.repository_id} repository and promotes releases from GitHub Actions"
 }
 
 # IAM rejects members for a workload identity pool that does not exist yet;
@@ -109,11 +102,12 @@ resource "google_service_account_iam_member" "manifest_publisher_wif" {
 # Artifact Registry is not among the services whose resource.name IAM
 # Conditions recognize -- a startsWith(resource.name, ".../packages/<path>")
 # condition would never match and deny every push. The effective control is
-# consumer-side verification: the platform's OCIRepository and each
-# application seed pin the exact signer workflow identity of the repo that
-# owns the path, so an application publisher pushing a fake
-# manifests/platform (or another application's image) still fails
-# verification on the cluster. A repository per publisher would make the
+# consumer-side verification, only as narrow as the subject a consumer pins:
+# signed_identity_subjects.manifests admits every repo github.manifest_signers
+# matches, so those repos are trusted with every path; a cluster that pins
+# manifest_publishers[<repo>].subject instead (as an application seed does)
+# rejects a fake manifests/platform (or another application's image) pushed
+# by any other publisher. A repository per publisher would make the
 # separation IAM-enforced; that is a layout change this module does not make.
 resource "google_artifact_registry_repository_iam_member" "chart_publisher" {
   project    = var.project
@@ -170,18 +164,8 @@ moved {
 }
 
 moved {
-  from = google_service_account_iam_member.manifest_publisher_wif["tag"]
-  to   = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:tag"]
-}
-
-moved {
   from = google_service_account_iam_member.manifest_publisher_wif["main"]
   to   = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:main"]
-}
-
-moved {
-  from = google_service_account_iam_member.manifest_publisher_wif["env"]
-  to   = google_service_account_iam_member.manifest_publisher_wif["flux-manifests:env"]
 }
 
 moved {
