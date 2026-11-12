@@ -21,6 +21,7 @@ spec:
     - apiVersion: fluxcd.controlplane.io/v1
       kind: FluxInstance
       name: flux
+      namespace: {{ .Release.Namespace }}
       ready: true
   inputsFrom:
     - apiVersion: fluxcd.controlplane.io/v1
