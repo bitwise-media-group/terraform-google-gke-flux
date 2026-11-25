@@ -22,8 +22,9 @@ variable "name" {
       "flux-system", "flux", "cilium", "kyverno", "kyverno-policies", "cert-manager", "cert-manager-issuers",
       "external-dns", "gateway", "gateway-api-crds", "aws-load-balancer-controller", "rbac", "secret-sync", "dex",
       "flux-web", "arc", "platform", "cluster-inputs",
+      "karpenter", "kube-prometheus-stack", "auth-proxy",
     ], var.name)
-    error_message = "name must not reuse a platform Kustomization or component name (flux-system, flux, cilium, kyverno, kyverno-policies, cert-manager, cert-manager-issuers, external-dns, gateway, gateway-api-crds, aws-load-balancer-controller, rbac, secret-sync, dex, flux-web, arc, platform, cluster-inputs) - the registry and the flux namespace are one flat namespace."
+    error_message = "name must not reuse a platform Kustomization or component name (flux-system, flux, cilium, kyverno, kyverno-policies, cert-manager, cert-manager-issuers, external-dns, gateway, gateway-api-crds, aws-load-balancer-controller, rbac, secret-sync, dex, flux-web, arc, platform, cluster-inputs, karpenter, kube-prometheus-stack, auth-proxy) - the registry and the flux namespace are one flat namespace."
   }
 }
 
