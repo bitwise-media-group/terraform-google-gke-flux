@@ -42,9 +42,11 @@ spec:
       secretRef:
         name: {{ . }}
       {{- end }}
+      # Tag only: a digest ref takes precedence and reduces the revision to
+      # sha256:<digest>, hiding which build rolled out. Tags never move and
+      # verify still checks the signature, so the digest pin adds nothing.
       ref:
         tag: << inputs.tag | quote >>
-        << if hasKey inputs "digest" >>digest: << inputs.digest | quote >><< end >>
       verify:
         provider: cosign
         {{- if .Values.verify.keyed }}
