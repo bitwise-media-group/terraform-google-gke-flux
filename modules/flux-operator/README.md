@@ -75,5 +75,5 @@ No modules.
 | ---- | ----------- |
 | applications | The application seeds, keyed as var.applications: the bootstrap-only helm release name, the namespace the seed<br/>objects (<key>-manifests) live in, and the providers the registry selected (GARArtifactTag / gcp under the<br/>platform prefix, OCIArtifactTag / generic elsewhere). |
 | cluster\_vars\_configmap | Name of the cluster-vars ConfigMap the platform substitutes from. |
-| namespace | The flux namespace. |
+| namespace | The flux namespace, once the flux-operator release has created it. |
 <!-- END_TF_DOCS -->

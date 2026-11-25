@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: MIT
 
 output "namespace" {
-  description = "The flux namespace."
-  value       = var.namespace
+  description = "The flux namespace, once the flux-operator release has created it."
+  # Through the release, not var.namespace: a consumer of this value (the
+  # root's application_target, and through it every modules/application
+  # release) then waits for the namespace to exist.
+  value = helm_release.flux_operator.namespace
 }
 
 output "cluster_vars_configmap" {
