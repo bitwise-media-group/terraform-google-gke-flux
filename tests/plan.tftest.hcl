@@ -722,6 +722,19 @@ run "arc_is_electable" {
   }
 }
 
+run "monitoring_and_auth_proxy_are_electable" {
+  command = plan
+
+  variables {
+    platform_components = ["flux-web", "kube-prometheus-stack", "auth-proxy"]
+  }
+
+  assert {
+    condition     = output.flux.cluster_vars.PLATFORM_COMPONENTS == "auth-proxy,flux-web,kube-prometheus-stack"
+    error_message = "kube-prometheus-stack and auth-proxy must be electable, published sorted and comma-joined"
+  }
+}
+
 run "platform_contract_elected" {
   command = plan
 

@@ -422,9 +422,11 @@ variable "secret_prefix" {
 
 variable "platform_components" {
   description = <<-EOT
-    The platform manifests' electable-tier components (short names: flux-web, arc) this cluster elects, published as
-    the PLATFORM_COMPONENTS cluster var. The platform entrypoint's ResourceSet ranges over the election: an elected
-    component gets its own OCIRepository (oci://<registry>/manifests/<name>) and Kustomization. Electing none is
+    The platform manifests' electable-tier components (short names: flux-web, arc, kube-prometheus-stack, auth-proxy)
+    this cluster elects, published as the PLATFORM_COMPONENTS cluster var. The platform entrypoint's ResourceSet ranges
+    over the election: an elected component gets its own OCIRepository (oci://<registry>/manifests/<name>) and
+    Kustomization. kube-prometheus-stack and auth-proxy need flux-manifests with those components; auth-proxy, and
+    kube-prometheus-stack's Grafana route, also need dex (sso.enabled). Electing none is
     explicit - set []. dex is not elected here: it deploys exactly when sso is enabled, and without it the elected
     components still run, just with no SSO auth and no human-facing HTTPRoute (kubectl port-forward to reach). The core
     tier (flux, kyverno, kyverno-policies, cert-manager, cert-manager-issuers, external-dns, gateway, rbac, secret-sync,
@@ -437,9 +439,9 @@ variable "platform_components" {
 
   validation {
     condition = alltrue([
-      for component in var.platform_components : contains(["flux-web", "arc"], component)
+      for component in var.platform_components : contains(["flux-web", "arc", "kube-prometheus-stack", "auth-proxy"], component)
     ])
-    error_message = "platform_components entries must be electable-tier short names: flux-web, arc (dex rides the sso toggle; the core tier is never electable)."
+    error_message = "platform_components entries must be electable-tier short names: flux-web, arc, kube-prometheus-stack, auth-proxy (dex rides the sso toggle; the core tier is never electable)."
   }
 }
 
